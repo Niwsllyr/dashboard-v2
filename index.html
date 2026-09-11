@@ -10,7 +10,7 @@
   // Formato: 'AAAA-MM-DDTHH:MM:SS' (horário de Brasília, -03:00)
   // Exemplo válido só por 10 minutos a partir de agora: some 10 min no horário atual
   // Exemplo válido por 1 dia: coloque a data de amanhã no mesmo horário
-  const LINK_EXPIRA_EM = new Date('2026-09-11T09:00:00-09:00').getTime();
+  const LINK_EXPIRA_EM = new Date('2026-09-11T09:00:00-03:00').getTime();
 
   if (Date.now() > LINK_EXPIRA_EM) {
     location.replace('expirado.html');
