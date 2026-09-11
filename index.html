@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>Dashboard XPT</title>
+
+<script>
+(function() {
+  // 🔒 TRAVA DE TEMPO — só troque a linha abaixo pra gerar um novo prazo
+  // Formato: 'AAAA-MM-DDTHH:MM:SS' (horário de Brasília, -03:00)
+  // Exemplo válido só por 10 minutos a partir de agora: some 10 min no horário atual
+  // Exemplo válido por 1 dia: coloque a data de amanhã no mesmo horário
+  const LINK_EXPIRA_EM = new Date('2026-09-11T09:00:00-09:00').getTime();
+
+  if (Date.now() > LINK_EXPIRA_EM) {
+    location.replace('expirado.html');
+  }
+})();
+</script>
+
+<link rel="icon" href="logo.png">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script type="module" src="dashboard.js"></script>
+</head>
+
+<body>
+
+<div class="dashboard" id="dashboard">
+
+  <header class="topbar">
+      <div class="brand">
+          <img src="logo.png" class="logo">
+          <div class="title-group">
+              <h1>Dashboard Operacional</h1>
+              <span>Performance Logística | SLA & DS</span>
+          </div>
+      </div>
+
+      <div class="actions">
+          <button id="btnGeneral" class="nav active">Geral</button>
+          <button id="btnSLA" class="nav">SLA</button>
+          <button id="btnDS" class="nav">DS</button>
+          <button id="btnCity" class="nav">Entregadores</button>
+          <button class="print" onclick="printAndCopy()">📸 Exportar</button>
+      </div>
+  </header>
+
+  <section class="control-bar">
+      <div class="uploads">
+          <div>
+              <label>SLA</label>
+              <input type="file" id="csvInput" accept=".csv">
+          </div>
+          <div>
+              <label>DS</label>
+              <input type="file" id="dsInput" accept=".csv">
+          </div>
+      </div>
+
+      <div class="filters">
+          <select id="driverSelect">
+              <option value="">Todos os Entregadores</option>
+          </select>
+
+          <select id="citySelect">
+              <option value="">Todas as Cidades</option>
+          </select>
+
+          <select id="statusSelect">
+              <option value="">Todos Status</option>
+          </select>
+      </div>
+  </section>
+
+  <section id="homePage" class="main-grid">
+
+      <div class="kpi-grid">
+
+          <div class="kpi">
+              <span>Total</span>
+              <strong id="kpiTotal">0</strong>
+          </div>
+
+          <div class="kpi">
+              <span>Entregues</span>
+              <strong id="kpiDelivered">0</strong>
+          </div>
+
+          <div class="kpi">
+              <span>Pendentes</span>
+              <strong id="kpiPending">0</strong>
+          </div>
+
+          <div class="kpi" id="kpiSlaCard">
+              <span>SLA</span>
+              <strong id="kpiSla">0%</strong>
+          </div>
+
+          <div class="kpi" id="cardMeta">
+              <span>Meta 98%</span>
+              <strong id="kpiForecast">0</strong>
+          </div>
+
+          <div class="kpi" id="kpiDsCard">
+              <span>DS</span>
+              <strong id="kpiDs">0%</strong>
+          </div>
+
+          <div class="kpi" id="cardDiff">
+              <span>SLA vs DS</span>
+              <strong id="kpiDiff">0%</strong>
+          </div>
+
+          <div class="kpi">
+              <span>Alerta</span>
+              <p id="kpiAlert">-</p>
+          </div>
+
+          <div class="kpi" id="cardScore">
+              <span>Score Operação</span>
+              <strong id="kpiScore">0</strong>
+          </div>
+
+      </div>
+
+      <div class="chart-grid">
+          <div class="card">
+              <canvas id="barChart"></canvas>
+          </div>
+          <div class="card">
+              <canvas id="pieChart"></canvas>
+          </div>
+      </div>
+
+  </section>
+
+  <section id="cityPage" class="table-page" style="display:none;">
+      <div class="card table-card">
+          <table>
+              <thead>
+                  <tr>
+                      <th>Entregador</th>
+                      <th>Total</th>
+                      <th>Entregues</th>
+                      <th>Pendentes</th>
+                      <th>SLA</th>
+                      <th>Notificar Entregador</th>
+                  </tr>
+              </thead>
+              <tbody id="cityTableBody"></tbody>
+          </table>
+      </div>
+  </section>
+
+    <footer style="text-align:center; padding:16px 0; font-size:12px; color:#888;">
+      © 2025 Desenvolvido por Niwsllyr Jhunhor
+  </footer>
+
+</div>
+
+
+
+<script>
+function printAndCopy() {
+    const area = document.getElementById("dashboard");
+
+     document.body.classList.add("export-mode");
+
+    // 🔥 força atualização visual
+    area.style.transform = "scale(1)";
+    
+    setTimeout(() => {
+        html2canvas(area, {
+            backgroundColor: "#000000",
+            scale: 2,
+            useCORS: true
+        }).then(canvas => {
+            const link = document.createElement("a");
+            link.download = "dashboard-xpt.png";
+            link.href = canvas.toDataURL("image/png");
+            link.click();
+
+            document.body.classList.remove("export-mode");
+        });
+    }, 300);
+}
+</script>
+
+</body>
+</html>
