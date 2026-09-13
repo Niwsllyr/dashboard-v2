@@ -353,7 +353,10 @@
 <div id="xptProgress" class="xpt-progress hidden">
   <div class="xpt-progress-header">
     <span id="xptProgressTitle">Atualizando dados...</span>
-    <button id="xptProgressClose" type="button" title="Fechar">✕</button>
+    <div class="xpt-progress-header-actions">
+      <button id="xptProgressStop" type="button" title="Parar atualização">🛑 Parar</button>
+      <button id="xptProgressClose" type="button" title="Fechar">✕</button>
+    </div>
   </div>
   <div class="xpt-progress-bar-wrap">
     <div id="xptProgressBar" class="xpt-progress-bar"></div>
@@ -394,6 +397,25 @@
     font-size: 13px;
     font-weight: 700;
     color: #e5e5e5;
+  }
+  .xpt-progress-header-actions{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #xptProgressStop{
+    background: transparent;
+    border: 1px solid #444;
+    color: #ddd;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 3px 9px;
+    cursor: pointer;
+  }
+  #xptProgressStop:hover{
+    border-color: #ff5f7e;
+    color: #ff5f7e;
   }
   #xptProgressClose{
     background: transparent;
@@ -481,6 +503,7 @@ if (window.electronAPI) {
   const elPercent = document.getElementById('xptProgressPercent');
   const elTitulo = document.getElementById('xptProgressTitle');
   const elFechar = document.getElementById('xptProgressClose');
+  const elParar = document.getElementById('xptProgressStop');
 
   let ultimoPercentual = 0;
 
@@ -493,6 +516,7 @@ if (window.electronAPI) {
       elBarra.style.width = '0%';
       elPercent.textContent = '0%';
       elStatus.textContent = 'Preparando...';
+      if (elParar) elParar.style.display = 'inline-block';
     },
 
     atualizar(percentual, status) {
@@ -508,6 +532,7 @@ if (window.electronAPI) {
       elProgresso.classList.add('is-erro');
       elTitulo.textContent = 'Erro na atualização';
       elStatus.textContent = mensagem || 'Algo deu errado.';
+      if (elParar) elParar.style.display = 'none';
     },
 
     concluir(mensagem) {
@@ -517,6 +542,7 @@ if (window.electronAPI) {
       elProgresso.classList.add('is-sucesso');
       elTitulo.textContent = 'Concluído!';
       elStatus.textContent = mensagem || 'Atualização concluída.';
+      if (elParar) elParar.style.display = 'none';
       setTimeout(() => {
         if (!elProgresso.classList.contains('is-erro')) {
           elProgresso.classList.add('hidden');
@@ -529,6 +555,12 @@ if (window.electronAPI) {
   if (elFechar) {
     elFechar.addEventListener('click', () => {
       elProgresso.classList.add('hidden');
+    });
+  }
+
+  if (elParar) {
+    elParar.addEventListener('click', () => {
+      window.electronAPI.pararAtualizacao();
     });
   }
 
