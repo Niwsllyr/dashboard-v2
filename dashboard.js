@@ -1,5 +1,5 @@
 import { processCSV } from "./csvReader.js?v=20260912b";
-import { processBacklogFile } from "./backlogreader.js?v=20260912b";
+import { processBacklogFile } from "./backlogReader.js?v=20260912b";
 import { renderCharts, renderBacklogCharts, renderPnrCharts } from "./charts.js?v=20260913b";
 import { calculateMetrics, calculateOperationScore } from "./metrics.js?v=20260912b";
 import { resolveCepsToCities } from "./cepresolver.js?v=20260912b";
@@ -612,6 +612,54 @@ function renderAddContactLink(driverName, onSaved) {
   return wrap;
 }
 
+// ------------------------------------------------------------
+// Cidade cadastrada manualmente (mesmo princípio dos contatos)
+// ------------------------------------------------------------
+const MANUAL_CITIES_KEY = "xpt_manual_cities_v1";
+let manualCities = {};
+try {
+  manualCities = JSON.parse(localStorage.getItem(MANUAL_CITIES_KEY) || "{}");
+} catch {
+  manualCities = {};
+}
+
+function saveManualCity(name, city) {
+  manualCities[name] = city;
+  try {
+    localStorage.setItem(MANUAL_CITIES_KEY, JSON.stringify(manualCities));
+  } catch {
+    // localStorage indisponível — vale só para esta sessão
+  }
+}
+
+function findManualCity(name) {
+  if (!name) return null;
+  if (manualCities[name]) return manualCities[name];
+  const target = normalizeNameForMatch(name);
+  const found = Object.keys(manualCities).find((k) => normalizeNameForMatch(k) === target);
+  return found ? manualCities[found] : null;
+}
+
+function renderCityCell(driverName, city, onSaved) {
+  if (city) {
+    const span = document.createElement("span");
+    span.innerText = city;
+    return span;
+  }
+  const wrap = document.createElement("span");
+  wrap.className = "no-contact add-contact-link";
+  wrap.innerText = "+ Definir cidade";
+  wrap.title = "Cadastrar a cidade manualmente para este entregador";
+  wrap.onclick = () => {
+    const input = window.prompt(`Cidade de ${driverName} (ex: Valença - RJ):`, "");
+    if (!input || !input.trim()) return;
+    saveManualCity(driverName, input.trim());
+    toast(`Cidade de ${firstName(driverName)} salva`, "good");
+    if (typeof onSaved === "function") onSaved();
+  };
+  return wrap;
+}
+
 function buildPnrMessage(pnr) {
   const value = parseFloat(pnr["PNR Order Value"]) || 0;
   const valueFormatted = value.toFixed(2).replace(".", ",");
@@ -707,7 +755,7 @@ function renderPnrView() {
       const deadline = r["SLA Deadline"] ? new Date(r["SLA Deadline"].toString().replace(" ", "T")) : null;
       const diffDays = deadline && !Number.isNaN(deadline.getTime()) ? (deadline.getTime() - now) / 86400000 : null;
       const orderCity = orderCityMap[(r["SPXTN"] || "").toString().trim()];
-      const city = orderCity || driverCityMap[driverName] || "Cidade não identificada";
+      const city = findManualCity(driverName) || orderCity || driverCityMap[driverName] || null;
       return {
         ...r,
         __driverName: driverName,
@@ -782,11 +830,12 @@ function renderPnrView() {
     tr.innerHTML = `
       <td>${r["SPXTN"] || "—"}</td>
       <td>${r.__driverName || "Sem entregador"}</td>
-      <td>${r["Station"] || "—"}</td>
+      <td class="pnr-city-cell"></td>
       <td>R$ ${value.toFixed(2).replace(".", ",")}</td>
       <td class="${rowClass}">${pnrDeadlineLabel(r.__diffDays)}</td>
       <td>${r.__status || "—"}</td>
     `;
+    tr.querySelector(".pnr-city-cell").appendChild(renderCityCell(r.__driverName, r.__city, () => renderPnrView()));
     tr.appendChild(renderPnrNotifyCell(r));
     pnrTableBody.appendChild(tr);
   });
