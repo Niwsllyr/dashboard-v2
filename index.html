@@ -357,6 +357,8 @@
 
 </div>
 
+<button id="xptLoginFeitoBtn" type="button" class="xpt-login-feito hidden">✅ Login Feito — Continuar</button>
+
 <div id="xptProgress" class="xpt-progress hidden">
   <div class="xpt-progress-header">
     <span id="xptProgressTitle">Atualizando dados...</span>
@@ -375,6 +377,36 @@
 </div>
 
 <style>
+  .xpt-login-feito{
+    position: fixed;
+    right: 18px;
+    bottom: 100px;
+    z-index: 99999;
+    padding: 14px 22px;
+    border-radius: 999px;
+    border: none;
+    background: #22c55e;
+    color: #052e12;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    animation: xpt-login-pulsa 1.6s ease-in-out infinite;
+  }
+  .xpt-login-feito.hidden{
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+  }
+  .xpt-login-feito:hover{
+    transform: translateY(-2px);
+  }
+  @keyframes xpt-login-pulsa{
+    0%, 100%{ box-shadow: 0 12px 30px rgba(34,197,94,0.35); }
+    50%{ box-shadow: 0 12px 30px rgba(34,197,94,0.75); }
+  }
+
   .xpt-progress{
     position: fixed;
     right: 18px;
@@ -575,6 +607,27 @@ if (window.electronAPI) {
   if (elParar) {
     elParar.addEventListener('click', () => {
       window.electronAPI.pararAtualizacao();
+    });
+  }
+
+  // ==========================================
+  // BOTÃO FLUTUANTE "LOGIN FEITO"
+  // ==========================================
+
+  const btnLoginFeito = document.getElementById('xptLoginFeitoBtn');
+
+  window.xptMostrarBotaoLogin = function () {
+    if (btnLoginFeito) btnLoginFeito.classList.remove('hidden');
+  };
+
+  window.xptEsconderBotaoLogin = function () {
+    if (btnLoginFeito) btnLoginFeito.classList.add('hidden');
+  };
+
+  if (btnLoginFeito) {
+    btnLoginFeito.addEventListener('click', () => {
+      btnLoginFeito.classList.add('hidden');
+      window.electronAPI.loginFeito();
     });
   }
 
