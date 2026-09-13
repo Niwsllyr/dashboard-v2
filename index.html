@@ -350,6 +350,105 @@
 
 </div>
 
+<div id="xptProgress" class="xpt-progress hidden">
+  <div class="xpt-progress-header">
+    <span id="xptProgressTitle">Atualizando dados...</span>
+    <button id="xptProgressClose" type="button" title="Fechar">✕</button>
+  </div>
+  <div class="xpt-progress-bar-wrap">
+    <div id="xptProgressBar" class="xpt-progress-bar"></div>
+  </div>
+  <div class="xpt-progress-row">
+    <span id="xptProgressStatus" class="xpt-progress-status">Preparando...</span>
+    <span id="xptProgressPercent" class="xpt-progress-percent">0%</span>
+  </div>
+</div>
+
+<style>
+  .xpt-progress{
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    width: 300px;
+    background: #141414;
+    border: 1px solid #303030;
+    border-radius: 14px;
+    padding: 14px 16px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    z-index: 99999;
+    font-family: inherit;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .xpt-progress.hidden{
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+  }
+  .xpt-progress-header{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .xpt-progress-header span{
+    font-size: 13px;
+    font-weight: 700;
+    color: #e5e5e5;
+  }
+  #xptProgressClose{
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+  #xptProgressClose:hover{ color: #ddd; }
+  .xpt-progress-bar-wrap{
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: #262626;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .xpt-progress-bar{
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #ff003c, #ff5f7e);
+    transition: width 0.35s ease, background 0.2s ease;
+  }
+  .xpt-progress.is-erro .xpt-progress-bar{
+    background: #d92b2b;
+  }
+  .xpt-progress.is-sucesso .xpt-progress-bar{
+    background: #22c55e;
+  }
+  .xpt-progress-row{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .xpt-progress-status{
+    font-size: 12px;
+    color: #b5b5b5;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .xpt-progress.is-erro .xpt-progress-status{
+    color: #ff8080;
+    white-space: normal;
+  }
+  .xpt-progress-percent{
+    font-size: 12px;
+    font-weight: 700;
+    color: #e5e5e5;
+  }
+</style>
+
 <script>
 // Só aparece/funciona quando está rodando dentro do app Dashboard XPT
 if (window.electronAPI) {
@@ -368,9 +467,68 @@ if (window.electronAPI) {
   if (btnAtualizar) {
     btnAtualizar.addEventListener('click', () => {
       window.electronAPI.atualizarDados();
-      if (typeof toast === 'function') {
-        toast('Atualização iniciada — acompanhe pelas mensagens.', 'info');
+    });
+  }
+
+
+  // ==========================================
+  // CARTÃO DE PROGRESSO (canto inferior direito)
+  // ==========================================
+
+  const elProgresso = document.getElementById('xptProgress');
+  const elBarra = document.getElementById('xptProgressBar');
+  const elStatus = document.getElementById('xptProgressStatus');
+  const elPercent = document.getElementById('xptProgressPercent');
+  const elTitulo = document.getElementById('xptProgressTitle');
+  const elFechar = document.getElementById('xptProgressClose');
+
+  let ultimoPercentual = 0;
+
+  window.xptProgress = {
+
+    mostrar(titulo) {
+      ultimoPercentual = 0;
+      elProgresso.classList.remove('hidden', 'is-erro', 'is-sucesso');
+      elTitulo.textContent = titulo || 'Atualizando dados...';
+      elBarra.style.width = '0%';
+      elPercent.textContent = '0%';
+      elStatus.textContent = 'Preparando...';
+    },
+
+    atualizar(percentual, status) {
+      if (typeof percentual === 'number' && percentual > ultimoPercentual) {
+        ultimoPercentual = percentual;
+        elBarra.style.width = ultimoPercentual + '%';
+        elPercent.textContent = ultimoPercentual + '%';
       }
+      if (status) elStatus.textContent = status;
+    },
+
+    erro(mensagem) {
+      elProgresso.classList.add('is-erro');
+      elTitulo.textContent = 'Erro na atualização';
+      elStatus.textContent = mensagem || 'Algo deu errado.';
+    },
+
+    concluir(mensagem) {
+      ultimoPercentual = 100;
+      elBarra.style.width = '100%';
+      elPercent.textContent = '100%';
+      elProgresso.classList.add('is-sucesso');
+      elTitulo.textContent = 'Concluído!';
+      elStatus.textContent = mensagem || 'Atualização concluída.';
+      setTimeout(() => {
+        if (!elProgresso.classList.contains('is-erro')) {
+          elProgresso.classList.add('hidden');
+        }
+      }, 5000);
+    },
+
+  };
+
+  if (elFechar) {
+    elFechar.addEventListener('click', () => {
+      elProgresso.classList.add('hidden');
     });
   }
 
