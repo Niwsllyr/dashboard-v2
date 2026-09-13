@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#080808"/>
+<title>Dashboard XPT — Central de Operações</title>
+
+<script>
+  // 🔒 TRAVA DE TEMPO — só troque a linha abaixo pra gerar um novo prazo
+  // Formato: 'AAAA-MM-DDTHH:MM:SS' (horário de Brasília, -03:00)
+  const LINK_EXPIRA_EM = new Date('2026-12-11T09:00:00-03:00').getTime();
+  if (Date.now() > LINK_EXPIRA_EM) {
+    location.replace('expirado.html');
+  }
+</script>
+
+<link rel="icon" href="logo.png">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=20260912b">
+<script type="module" src="dashboard.js?v=20260913d"></script>
+</head>
+
+<body>
+
+<div class="dashboard" id="dashboard">
+
+  <div id="linkCountdown" class="link-countdown"></div>
+
+  <header class="topbar">
+      <div class="brand">
+          <img src="logo.png" class="logo" alt="Logo">
+          <div class="title-group">
+              <h1>Dashboard Operacional</h1>
+              <span><span class="live-dot"></span>Performance Logística · SLA &amp; DS</span>
+          </div>
+      </div>
+
+      <div class="actions">
+          <div class="actions-group">
+              <button id="btnGeneral" class="nav active">Geral</button>
+              <button id="btnSLA" class="nav">SLA</button>
+              <button id="btnDS" class="nav">DS</button>
+              <button id="btnBacklog" class="nav">Backlog</button>
+              <button id="btnPnr" class="nav">PNR</button>
+              <button id="btnCity" class="nav">Entregadores</button>
+          </div>
+          <div class="actions-group">
+              <select id="paletteSelect" class="palette-select" title="Paleta de cores"></select>
+              <button id="themeToggle" class="theme-toggle" type="button">🌙 Escuro</button>
+              <button id="btnTvMode" class="theme-toggle" type="button">📺 Modo TV</button>
+          </div>
+          <div class="actions-group">
+              <button class="print" id="btnExportPdf" type="button">📄 Relatório PDF</button>
+              <button class="print print-ghost" onclick="exportImage()" type="button">📋 Copiar Print</button>
+          </div>
+      </div>
+  </header>
+
+  <section class="control-bar">
+      <div class="control-row control-row-uploads">
+          <div class="upload-group">
+              <label>📄 SLA</label>
+              <input type="file" id="csvInput" accept=".csv" multiple>
+          </div>
+          <div class="upload-group">
+              <label>📄 DS</label>
+              <input type="file" id="dsInput" accept=".csv" multiple>
+          </div>
+          <div class="upload-group">
+              <label>📄 Backlog</label>
+              <input type="file" id="backlogInput" accept=".xlsx,.xls,.csv" multiple>
+          </div>
+          <div class="upload-group">
+              <label>📄 PNR</label>
+              <input type="file" id="pnrInput" accept=".csv" multiple>
+          </div>
+          <select id="stationSelect" class="station-badge"></select>
+          <span id="cepStatus" class="cep-status"></span>
+      </div>
+
+      <div class="control-divider"></div>
+
+      <div class="control-row control-row-filters">
+          <div class="goal-group">
+              <label class="goal-label" for="goalInput">🎯 Meta SLA</label>
+              <input type="number" id="goalInput" class="goal-input" min="1" max="100" step="0.1" value="98">
+          </div>
+
+          <select id="driverSelect">
+              <option value="">Todos os Entregadores</option>
+          </select>
+
+          <select id="citySelect">
+              <option value="">Todas as Cidades</option>
+          </select>
+
+          <select id="statusSelect">
+              <option value="">Todos Status</option>
+          </select>
+
+          <div class="global-search-wrap">
+              <input type="search" id="globalSearch" class="search-input global-search" placeholder="🔍 Buscar pedido, entregador ou CEP...">
+              <div id="globalSearchResults" class="global-search-results"></div>
+          </div>
+      </div>
+  </section>
+
+  <div id="emptyState" class="empty-state">
+    <div class="empty-state-icon">📦</div>
+    <h2>Nenhum dado carregado ainda</h2>
+    <p>Envie o arquivo SLA (e, se quiser, o arquivo DS) exportado do SPX para ver os indicadores da operação.</p>
+  </div>
+
+  <section id="homePage" class="main-grid">
+
+      <div class="kpi-grid">
+
+          <div class="kpi">
+              <span>Total</span>
+              <strong id="kpiTotal" class="num">0</strong>
+          </div>
+
+          <div class="kpi">
+              <span>Entregues</span>
+              <strong id="kpiDelivered" class="num">0</strong>
+          </div>
+
+          <div class="kpi">
+              <span>Pendentes</span>
+              <strong id="kpiPending" class="num">0</strong>
+          </div>
+
+          <div class="kpi">
+              <span>Ocorrências</span>
+              <strong id="kpiOnHold" class="num">0</strong>
+          </div>
+
+          <div class="kpi" id="kpiSlaCard">
+              <span>SLA</span>
+              <strong id="kpiSla" class="num">0%</strong>
+              <span id="kpiSlaTrend" class="kpi-trend"></span>
+          </div>
+
+          <div class="kpi" id="kpiDsCard">
+              <span>DS</span>
+              <strong id="kpiDs" class="num">0%</strong>
+              <span id="kpiDsTrend" class="kpi-trend"></span>
+          </div>
+
+          <div class="kpi kpi-alert">
+              <span>Alerta</span>
+              <p id="kpiAlert">-</p>
+          </div>
+
+      </div>
+
+      <div class="chart-grid">
+          <div class="card">
+              <canvas id="barChart"></canvas>
+          </div>
+          <div class="card">
+              <button id="btnClearRankingFilter" class="chart-clear-filter" type="button" style="display:none;">✕ Voltar</button>
+              <canvas id="pieChart"></canvas>
+          </div>
+      </div>
+
+  </section>
+
+  <section id="cityPage" class="table-page" style="display:none;">
+      <div class="card table-card">
+          <div class="table-card-header">
+            <h2>Entregadores</h2>
+            <div class="table-card-tools">
+              <input type="search" id="driverSearch" placeholder="Buscar entregador..." class="search-input">
+              <select id="priorityFilter" class="priority-filter">
+                <option value="">🎯 Todas as prioridades</option>
+                <option value="sla-red">🔴 Crítico</option>
+                <option value="sla-yellow">🟡 Atenção</option>
+                <option value="sla-green">🟢 Em dia</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th data-sort="name">Entregador</th>
+                        <th data-sort="total">Total</th>
+                        <th data-sort="delivered">Entregues</th>
+                        <th data-sort="pending">Pendentes</th>
+                        <th data-sort="sla">SLA</th>
+                        <th>Notificar Entregador</th>
+                    </tr>
+                </thead>
+                <tbody id="cityTableBody"></tbody>
+            </table>
+          </div>
+      </div>
+  </section>
+
+  <section id="backlogPage" class="table-page" style="display:none;">
+
+      <div class="kpi-grid" style="margin-bottom:20px;">
+          <div class="kpi">
+              <span>📦 Total no Backlog</span>
+              <strong id="kpiBacklogTotal" class="num">0</strong>
+          </div>
+          <div class="kpi">
+              <span>🆕 Sem tentativa</span>
+              <strong id="kpiBacklogNoAttempt" class="num">0</strong>
+          </div>
+          <div class="kpi">
+              <span>🔁 Já tentou entregar</span>
+              <strong id="kpiBacklogAttempted" class="num">0</strong>
+          </div>
+          <div class="kpi kpi-flash" id="kpiBacklogCriticalCard">
+              <span>⏰ Parados há mais de 6 dias</span>
+              <strong id="kpiBacklogCritical" class="num">0</strong>
+          </div>
+      </div>
+
+      <div class="chart-grid" style="margin-bottom:20px;">
+          <div class="card">
+              <canvas id="backlogAgingChart"></canvas>
+          </div>
+          <div class="card">
+              <canvas id="backlogHandlerChart"></canvas>
+          </div>
+      </div>
+
+      <div class="card table-card">
+          <div class="table-card-header">
+            <h2>Pacotes em Backlog</h2>
+            <div class="table-card-tools">
+              <input type="search" id="backlogSearch" placeholder="Buscar pacote ou entregador..." class="search-input">
+              <select id="backlogStatusFilter">
+                  <option value="">Todos Status</option>
+              </select>
+              <select id="backlogDriverFilter">
+                  <option value="">Todos os Entregadores</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Pacote</th>
+                        <th>Estação</th>
+                        <th>Status Atual</th>
+                        <th>Entregador Atual</th>
+                        <th>Parado no LM (dias)</th>
+                        <th>Tentativas</th>
+                    </tr>
+                </thead>
+                <tbody id="backlogTableBody"></tbody>
+            </table>
+          </div>
+      </div>
+  </section>
+
+  <section id="pnrPage" class="table-page" style="display:none;">
+
+      <div class="kpi-grid" style="margin-bottom:20px;">
+          <div class="kpi">
+              <span>🎫 Total de PNR</span>
+              <strong id="kpiPnrTotal" class="num">0</strong>
+          </div>
+          <div class="kpi">
+              <span>📂 Em Aberto</span>
+              <strong id="kpiPnrOpen" class="num">0</strong>
+          </div>
+          <div class="kpi">
+              <span>💰 Valor em Risco</span>
+              <strong id="kpiPnrValue" class="num">R$ 0</strong>
+          </div>
+          <div class="kpi kpi-flash" id="kpiPnrUrgentCard">
+              <span>⏰ Vencendo em até 1 dia</span>
+              <strong id="kpiPnrUrgent" class="num">0</strong>
+          </div>
+      </div>
+
+      <div class="chart-grid" style="margin-bottom:20px;">
+          <div class="card">
+              <canvas id="pnrDeadlineChart"></canvas>
+          </div>
+          <div class="card">
+              <canvas id="pnrDriverChart"></canvas>
+          </div>
+      </div>
+
+      <div class="card table-card">
+          <div class="table-card-header">
+            <h2>PNR em Aberto</h2>
+            <div class="table-card-tools">
+              <input type="search" id="pnrSearch" placeholder="Buscar PNR ou entregador..." class="search-input">
+              <select id="pnrScopeFilter">
+                  <option value="open">Somente em aberto</option>
+                  <option value="all">Todos os status</option>
+              </select>
+              <select id="pnrStatusFilter">
+                  <option value="">Todos Status</option>
+              </select>
+              <select id="pnrDriverFilter">
+                  <option value="">Todos os Entregadores</option>
+              </select>
+              <select id="pnrCityFilter">
+                  <option value="">Todas as Cidades</option>
+              </select>
+              <button id="btnPnrCityNotify" class="btn-export" type="button" disabled>Copiar resumo da cidade</button>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>PNR</th>
+                        <th>Entregador</th>
+                        <th>Estação</th>
+                        <th>Valor</th>
+                        <th>Prazo SLA</th>
+                        <th>Status</th>
+                        <th>Notificar PNR</th>
+                    </tr>
+                </thead>
+                <tbody id="pnrTableBody"></tbody>
+            </table>
+          </div>
+      </div>
+  </section>
+
+    <footer class="footer">
+      © 2025 Desenvolvido por Niwsllyr Jhunhor
+  </footer>
+
+</div>
+
+<script>
+// ⏳ Contagem regressiva do prazo de acesso
+function atualizarContagemAcesso() {
+  const elemento = document.getElementById('linkCountdown');
+  if (!elemento) return;
+
+  const restante = LINK_EXPIRA_EM - Date.now();
+  if (restante <= 0) {
+    location.replace('expirado.html');
+    return;
+  }
+
+  const totalSegundos = Math.floor(restante / 1000);
+  const dias = Math.floor(totalSegundos / 86400);
+  const horas = Math.floor((totalSegundos % 86400) / 3600);
+  const minutos = Math.floor((totalSegundos % 3600) / 60);
+  const segundos = totalSegundos % 60;
+
+  let texto = '⏳ Acesso encerra em ';
+  if (dias > 0) texto += `${dias}d `;
+  texto += `${String(horas).padStart(2, '0')}h ${String(minutos).padStart(2, '0')}m ${String(segundos).padStart(2, '0')}s`;
+  elemento.innerText = texto;
+}
+atualizarContagemAcesso();
+setInterval(atualizarContagemAcesso, 1000);
+</script>
+
+</body>
+</html>
