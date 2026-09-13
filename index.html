@@ -62,6 +62,7 @@
           <div class="actions-group" id="electronActions" style="display:none;">
               <button class="print print-ghost" id="btnImportarBRs" type="button">📥 Importar BRs (SLA)</button>
               <button class="print" id="btnAtualizarDados" type="button">🔄 Atualizar Dados</button>
+              <button class="print print-ghost" id="btnAbrirLog" type="button" title="Abrir o log detalhado da última atualização">📄 Ver Log</button>
           </div>
           <div class="actions-group">
               <span id="licenseBadge" class="license-badge">🔑 —</span>
@@ -495,6 +496,13 @@ if (window.electronAPI) {
   if (btnAtualizar) {
     btnAtualizar.addEventListener('click', () => {
       window.electronAPI.atualizarDados();
+    });
+  }
+
+  const btnLog = document.getElementById('btnAbrirLog');
+  if (btnLog) {
+    btnLog.addEventListener('click', () => {
+      window.electronAPI.abrirUltimoLog();
     });
   }
 
