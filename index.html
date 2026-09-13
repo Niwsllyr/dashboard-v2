@@ -6,15 +6,6 @@
 <meta name="theme-color" content="#080808"/>
 <title>Dashboard XPT — Central de Operações</title>
 
-<script>
-  // 🔒 TRAVA DE TEMPO — só troque a linha abaixo pra gerar um novo prazo
-  // Formato: 'AAAA-MM-DDTHH:MM:SS' (horário de Brasília, -03:00)
-  const LINK_EXPIRA_EM = new Date('2026-12-11T09:00:00-03:00').getTime();
-  if (Date.now() > LINK_EXPIRA_EM) {
-    location.replace('expirado.html');
-  }
-</script>
-
 <link rel="icon" href="logo.png">
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -24,7 +15,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20260913a">
+<link rel="stylesheet" href="styles.css?v=20260913b">
 <script type="module" src="auth.js?v=20260913a"></script>
 <script type="module" src="dashboard.js?v=20260913h"></script>
 </head>
@@ -44,8 +35,6 @@
 </div>
 
 <div class="dashboard" id="dashboard">
-
-  <div id="linkCountdown" class="link-countdown"></div>
 
   <header class="topbar">
       <div class="brand">
@@ -356,33 +345,6 @@
   </footer>
 
 </div>
-
-<script>
-// ⏳ Contagem regressiva do prazo de acesso
-function atualizarContagemAcesso() {
-  const elemento = document.getElementById('linkCountdown');
-  if (!elemento) return;
-
-  const restante = LINK_EXPIRA_EM - Date.now();
-  if (restante <= 0) {
-    location.replace('expirado.html');
-    return;
-  }
-
-  const totalSegundos = Math.floor(restante / 1000);
-  const dias = Math.floor(totalSegundos / 86400);
-  const horas = Math.floor((totalSegundos % 86400) / 3600);
-  const minutos = Math.floor((totalSegundos % 3600) / 60);
-  const segundos = totalSegundos % 60;
-
-  let texto = '⏳ Acesso encerra em ';
-  if (dias > 0) texto += `${dias}d `;
-  texto += `${String(horas).padStart(2, '0')}h ${String(minutos).padStart(2, '0')}m ${String(segundos).padStart(2, '0')}s`;
-  elemento.innerText = texto;
-}
-atualizarContagemAcesso();
-setInterval(atualizarContagemAcesso, 1000);
-</script>
 
 </body>
 </html>

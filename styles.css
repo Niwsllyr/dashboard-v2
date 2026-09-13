@@ -152,18 +152,6 @@ button, input, select{ font-family:inherit; }
   100%{ box-shadow:0 0 0 0 rgba(34,197,94,0); }
 }
 
-.link-countdown{
-  position:fixed; bottom:14px; left:14px;
-  background:rgba(0,0,0,0.65);
-  color:#ccc;
-  font-family:var(--font-num);
-  font-size:11px; font-weight:500;
-  padding:5px 10px;
-  border-radius:6px;
-  z-index:9999;
-  pointer-events:none;
-}
-
 /* ===== BUTTONS ===== */
 
 .actions{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
@@ -672,7 +660,7 @@ tbody td:first-child{ font-family:var(--font-ui); }
 /* ===== EXPORT MODE ===== */
 
 .export-mode .kpi, .export-mode .card{ box-shadow:none !important; }
-.export-mode .link-countdown, .export-mode .toast{ display:none !important; }
+.export-mode .toast{ display:none !important; }
 
 /* ===== MODO TV ===== */
 
@@ -749,7 +737,6 @@ tbody td:first-child{ font-family:var(--font-ui); }
 
   .table-scroll{ padding:10px 12px 16px; }
   .toast{ left:14px; right:14px; bottom:56px; max-width:none; text-align:center; }
-  .link-countdown{ font-size:10px; padding:4px 8px; }
 
   .tv-mode .kpi strong.num{ font-size:26px; }
 }
