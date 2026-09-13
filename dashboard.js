@@ -33,6 +33,7 @@ const backlogPage = document.getElementById("backlogPage");
 const backlogSearch = document.getElementById("backlogSearch");
 const backlogStatusFilter = document.getElementById("backlogStatusFilter");
 const backlogDriverFilter = document.getElementById("backlogDriverFilter");
+const backlogCityFilter = document.getElementById("backlogCityFilter");
 const backlogTableBody = document.getElementById("backlogTableBody");
 const pnrPage = document.getElementById("pnrPage");
 const pnrSearch = document.getElementById("pnrSearch");
@@ -443,7 +444,7 @@ function renderBacklogView() {
     document.getElementById("kpiBacklogNoAttempt").innerText = "0";
     document.getElementById("kpiBacklogAttempted").innerText = "0";
     document.getElementById("kpiBacklogCritical").innerText = "0";
-    backlogTableBody.innerHTML = `<tr><td colspan="6" class="table-empty">Nenhum arquivo de Backlog carregado ainda — envie o arquivo (.xlsx ou .csv) no topo da página.</td></tr>`;
+    backlogTableBody.innerHTML = `<tr><td colspan="7" class="table-empty">Nenhum arquivo de Backlog carregado ainda — envie o arquivo (.xlsx ou .csv) no topo da página.</td></tr>`;
     if (typeof renderBacklogCharts === "function") renderBacklogCharts([]);
     return;
   }
@@ -454,20 +455,37 @@ function renderBacklogView() {
     rows = rows.filter((r) => (r["Station Name"] || "").toString().trim() === stationValue);
   }
 
+  // Cruza cada pacote com SLA/DS pra descobrir a cidade — primeiro
+  // pelo próprio código BR, senão pela cidade mais comum do entregador
+  const orderCityMap = buildOrderCityMap();
+  const driverCityMap = buildDriverCityMap();
+  rows = rows.map((r) => {
+    const driverName = extractHandlerName(r["Latest User Name"]);
+    const shipmentId = (r["Shipment ID"] || "").toString().trim();
+    const city = findManualCity(driverName) || orderCityMap[shipmentId] || driverCityMap[driverName] || null;
+    return { ...r, __driverName: driverName, __city: city };
+  });
+
   const statuses = [...new Set(rows.map((r) => (r["Latest Status"] || "").toString().trim()).filter(Boolean))].sort();
-  const drivers = [...new Set(rows.map((r) => extractHandlerName(r["Latest User Name"])).filter(Boolean))].sort((a, b) =>
+  const drivers = [...new Set(rows.map((r) => r.__driverName).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "pt-BR")
   );
+  const cities = [...new Set(rows.map((r) => r.__city).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   populateSelectPreserve(backlogStatusFilter, statuses, '<option value="">Todos Status</option>');
   populateSelectPreserve(backlogDriverFilter, drivers, '<option value="">Todos os Entregadores</option>');
+  populateSelectPreserve(backlogCityFilter, cities, '<option value="">Todas as Cidades</option>');
 
   const statusValue = backlogStatusFilter ? backlogStatusFilter.value : "";
   const driverValue = backlogDriverFilter ? backlogDriverFilter.value : "";
+  const cityValue = backlogCityFilter ? backlogCityFilter.value : "";
   if (statusValue) {
     rows = rows.filter((r) => (r["Latest Status"] || "").toString().trim() === statusValue);
   }
   if (driverValue) {
-    rows = rows.filter((r) => extractHandlerName(r["Latest User Name"]) === driverValue);
+    rows = rows.filter((r) => r.__driverName === driverValue);
+  }
+  if (cityValue) {
+    rows = rows.filter((r) => r.__city === cityValue);
   }
 
   const summary = computeBacklogSummary(rows);
@@ -486,7 +504,7 @@ function renderBacklogView() {
   if (term) {
     filtered = filtered.filter((r) => {
       const shipment = (r["Shipment ID"] || "").toString().toLowerCase();
-      const handler = extractHandlerName(r["Latest User Name"]).toLowerCase();
+      const handler = r.__driverName.toLowerCase();
       return shipment.includes(term) || handler.includes(term);
     });
   }
@@ -500,7 +518,7 @@ function renderBacklogView() {
 
   backlogTableBody.innerHTML = "";
   if (!filtered.length) {
-    backlogTableBody.innerHTML = `<tr><td colspan="6" class="table-empty">Nenhum pacote encontrado</td></tr>`;
+    backlogTableBody.innerHTML = `<tr><td colspan="7" class="table-empty">Nenhum pacote encontrado</td></tr>`;
     return;
   }
 
@@ -511,8 +529,9 @@ function renderBacklogView() {
     tr.innerHTML = `
       <td>${r["Shipment ID"] || "—"}</td>
       <td>${r["Station Name"] || "—"}</td>
+      <td>${r.__city || "—"}</td>
       <td>${r["Latest Status"] || "—"}</td>
-      <td>${extractHandlerName(r["Latest User Name"]) || "Sem responsável"}</td>
+      <td>${r.__driverName || "Sem responsável"}</td>
       <td class="${rowClass}">${r["LM Leg Days"] || "0"} (${agingLabel(rank)})</td>
       <td>${r["No. Attempts"] || "0"}</td>
     `;
@@ -528,6 +547,9 @@ if (backlogStatusFilter) {
 }
 if (backlogDriverFilter) {
   backlogDriverFilter.addEventListener("change", renderBacklogView);
+}
+if (backlogCityFilter) {
+  backlogCityFilter.addEventListener("change", renderBacklogView);
 }
 
 // ------------------------------------------------------------
