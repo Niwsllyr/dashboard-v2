@@ -17,7 +17,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css?v=20260913b">
 <script type="module" src="auth.js?v=20260913a"></script>
-<script type="module" src="dashboard.js?v=20260913h"></script>
+<script type="module" src="dashboard.js?v=20260913i"></script>
 </head>
 
 <body>
@@ -58,6 +58,10 @@
               <select id="paletteSelect" class="palette-select" title="Paleta de cores"></select>
               <button id="themeToggle" class="theme-toggle" type="button">🌙 Escuro</button>
               <button id="btnTvMode" class="theme-toggle" type="button">📺 Modo TV</button>
+          </div>
+          <div class="actions-group" id="electronActions" style="display:none;">
+              <button class="print print-ghost" id="btnImportarBRs" type="button">📥 Importar BRs (SLA)</button>
+              <button class="print" id="btnAtualizarDados" type="button">🔄 Atualizar Dados</button>
           </div>
           <div class="actions-group">
               <span id="licenseBadge" class="license-badge">🔑 —</span>
@@ -345,6 +349,33 @@
   </footer>
 
 </div>
+
+<script>
+// Só aparece/funciona quando está rodando dentro do app Dashboard XPT
+if (window.electronAPI) {
+
+  const barra = document.getElementById('electronActions');
+  if (barra) barra.style.display = 'flex';
+
+  const btnImportar = document.getElementById('btnImportarBRs');
+  if (btnImportar) {
+    btnImportar.addEventListener('click', () => {
+      window.electronAPI.importarBRsSLA();
+    });
+  }
+
+  const btnAtualizar = document.getElementById('btnAtualizarDados');
+  if (btnAtualizar) {
+    btnAtualizar.addEventListener('click', () => {
+      window.electronAPI.atualizarDados();
+      if (typeof toast === 'function') {
+        toast('Atualização iniciada — acompanhe pelas mensagens.', 'info');
+      }
+    });
+  }
+
+}
+</script>
 
 </body>
 </html>

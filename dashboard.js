@@ -949,6 +949,9 @@ function toast(message, tone = "info") {
   toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
 }
 
+// Exposto no window pro app Electron poder chamar de fora do módulo
+window.toast = toast;
+
 // ------------------------------------------------------------
 // Resolução de CEP -> Cidade
 // ------------------------------------------------------------
