@@ -871,3 +871,74 @@ tbody td:first-child{ font-family:var(--font-ui); }
 @media (max-width:480px){
   .auth-box{ padding:28px 22px; }
 }
+
+/* =========================
+   CAIXINHA DE INPUT PRÓPRIA
+   (substitui window.prompt, que não funciona dentro do app)
+========================= */
+
+.xpt-modal-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+}
+
+.xpt-modal{
+  width: 320px;
+  max-width: 90vw;
+  background: var(--surface, #141414);
+  border: 1px solid var(--line, #303030);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+}
+
+.xpt-modal-title{
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text, #e5e5e5);
+  margin-bottom: 12px;
+}
+
+.xpt-modal-input{
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line, #303030);
+  background: var(--bg, #0b0b0b);
+  color: var(--text, #e5e5e5);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.xpt-modal-input:focus{
+  outline: none;
+  border-color: var(--accent-1, #ff003c);
+}
+
+.xpt-modal-actions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.xpt-modal-actions button{
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--line, #303030);
+  background: transparent;
+  color: var(--text, #e5e5e5);
+}
+
+.xpt-modal-actions .xpt-modal-ok{
+  background: var(--accent-1, #ff003c);
+  border-color: var(--accent-1, #ff003c);
+  color: #fff;
+}

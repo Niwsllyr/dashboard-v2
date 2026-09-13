@@ -34,6 +34,8 @@ const backlogSearch = document.getElementById("backlogSearch");
 const backlogStatusFilter = document.getElementById("backlogStatusFilter");
 const backlogDriverFilter = document.getElementById("backlogDriverFilter");
 const backlogCityFilter = document.getElementById("backlogCityFilter");
+const btnBacklogDriverNotify = document.getElementById("btnBacklogDriverNotify");
+const btnBacklogCityNotify = document.getElementById("btnBacklogCityNotify");
 const backlogTableBody = document.getElementById("backlogTableBody");
 const pnrPage = document.getElementById("pnrPage");
 const pnrSearch = document.getElementById("pnrSearch");
@@ -416,6 +418,39 @@ function agingLabel(rank) {
   return ["Sem atraso", "1 a 3 dias", "3 a 6 dias", "Mais de 6 dias"][rank] || "-";
 }
 
+function buildBacklogDriverMessage(driverName, rows) {
+  const total = rows.length;
+  const critical = rows.filter((r) => agingRank(r["LM Leg Aging"]) === 3).length;
+  const noAttempt = rows.filter((r) => (parseFloat(r["No. Attempts"]) || 0) <= 0).length;
+  return `*ATENÇÃO - PACOTES EM BACKLOG*
+
+${firstName(driverName)},
+
+Você tem ${total} pacote(s) parado(s) no backlog.
+
+Mais de 6 dias parados: ${critical}
+Sem nenhuma tentativa de entrega: ${noAttempt}
+
+Precisamos da sua atenção para resolver esses pacotes o quanto antes.`;
+}
+
+function buildBacklogCitySummaryMessage(cityName, rows) {
+  const total = rows.length;
+  const critical = rows.filter((r) => agingRank(r["LM Leg Aging"]) === 3).length;
+  const sorted = [...rows].sort((a, b) => (parseFloat(b["LM Leg Days"]) || 0) - (parseFloat(a["LM Leg Days"]) || 0));
+  const lines = sorted.map(
+    (r) => `- ${r["Shipment ID"] || "—"} | ${r.__driverName || "Sem responsável"} | ${r["LM Leg Days"] || "0"} dias`
+  );
+
+  return `Backlog em Aberto - ${cityName}
+
+Total: ${total} pacote(s) parado(s), sendo ${critical} com mais de 6 dias
+
+${lines.join("\n")}
+
+Tratar o quanto antes para reduzir o backlog.`;
+}
+
 function computeBacklogSummary(rows) {
   let noAttempt = 0;
   let attempted = 0;
@@ -486,6 +521,44 @@ function renderBacklogView() {
   }
   if (cityValue) {
     rows = rows.filter((r) => r.__city === cityValue);
+  }
+
+  // Botão "Notificar Entregador" — só aparece com um entregador filtrado
+  if (btnBacklogDriverNotify) {
+    if (driverValue) {
+      btnBacklogDriverNotify.style.display = "inline-flex";
+      btnBacklogDriverNotify.onclick = () => {
+        const phone = normalizePhone(findDriverPhone(driverValue));
+        if (!phone) {
+          toast(`${firstName(driverValue)} ainda não tem telefone cadastrado`, "warn");
+          return;
+        }
+        const message = buildBacklogDriverMessage(driverValue, rows);
+        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+        window.open(url, "_blank");
+        toast(`Mensagem de backlog preparada para ${firstName(driverValue)}`, "good");
+      };
+    } else {
+      btnBacklogDriverNotify.style.display = "none";
+    }
+  }
+
+  // Botão "Notificar Cidade" — só aparece com uma cidade filtrada
+  if (btnBacklogCityNotify) {
+    if (cityValue) {
+      btnBacklogCityNotify.style.display = "inline-flex";
+      btnBacklogCityNotify.onclick = async () => {
+        const message = buildBacklogCitySummaryMessage(cityValue, rows);
+        const ok = await copyTextToClipboard(message);
+        if (ok) {
+          toast(`Resumo de ${cityValue} copiado — já pode colar`, "good");
+        } else {
+          toast("Não foi possível copiar automaticamente", "bad");
+        }
+      };
+    } else {
+      btnBacklogCityNotify.style.display = "none";
+    }
   }
 
   const summary = computeBacklogSummary(rows);
@@ -582,6 +655,46 @@ function normalizeNameForMatch(value) {
 }
 
 // ------------------------------------------------------------
+// Caixinha própria de input (substitui window.prompt, que não
+// funciona dentro do app — sempre retorna vazio no Electron)
+// ------------------------------------------------------------
+function askInputModal(title, placeholder) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "xpt-modal-overlay";
+    overlay.innerHTML = `
+      <div class="xpt-modal">
+        <div class="xpt-modal-title">${title}</div>
+        <input type="text" class="xpt-modal-input" placeholder="${placeholder || ""}">
+        <div class="xpt-modal-actions">
+          <button type="button" class="xpt-modal-cancel">Cancelar</button>
+          <button type="button" class="xpt-modal-ok">Salvar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = overlay.querySelector(".xpt-modal-input");
+    input.focus();
+
+    function fechar(valor) {
+      document.body.removeChild(overlay);
+      resolve(valor);
+    }
+
+    overlay.querySelector(".xpt-modal-cancel").onclick = () => fechar(null);
+    overlay.querySelector(".xpt-modal-ok").onclick = () => fechar(input.value);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") fechar(input.value);
+      if (e.key === "Escape") fechar(null);
+    });
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) fechar(null);
+    });
+  });
+}
+
+// ------------------------------------------------------------
 // Contatos cadastrados manualmente (quando o motorista não
 // aparece em nenhum SLA/DS carregado) — persistem no navegador
 // ------------------------------------------------------------
@@ -599,6 +712,9 @@ function saveManualContact(name, phone) {
     localStorage.setItem(MANUAL_CONTACTS_KEY, JSON.stringify(manualContacts));
   } catch {
     // localStorage indisponível — vale só para esta sessão
+  }
+  if (window.electronAPI && window.electronAPI.salvarContatoManual) {
+    window.electronAPI.salvarContatoManual(name, phone);
   }
 }
 
@@ -619,8 +735,8 @@ function renderAddContactLink(driverName, onSaved) {
   wrap.className = "no-contact add-contact-link";
   wrap.innerText = "+ Adicionar contato";
   wrap.title = "Cadastrar telefone manualmente para este entregador";
-  wrap.onclick = () => {
-    const input = window.prompt(`Telefone de ${driverName} (com DDD, só números):`, "");
+  wrap.onclick = async () => {
+    const input = await askInputModal(`Telefone de ${driverName}`, "DDD + número, só dígitos");
     if (!input) return;
     const digits = input.toString().replace(/\D/g, "");
     if (digits.length < 10) {
@@ -652,6 +768,9 @@ function saveManualCity(name, city) {
   } catch {
     // localStorage indisponível — vale só para esta sessão
   }
+  if (window.electronAPI && window.electronAPI.salvarCidadeManual) {
+    window.electronAPI.salvarCidadeManual(name, city);
+  }
 }
 
 function findManualCity(name) {
@@ -660,6 +779,24 @@ function findManualCity(name) {
   const target = normalizeNameForMatch(name);
   const found = Object.keys(manualCities).find((k) => normalizeNameForMatch(k) === target);
   return found ? manualCities[found] : null;
+}
+
+// Dentro do app, o arquivo salvo pelo Electron é quem manda —
+// mescla por cima do que já tinha vindo do navegador
+if (window.electronAPI && window.electronAPI.carregarDadosManuais) {
+  window.electronAPI
+    .carregarDadosManuais()
+    .then((dados) => {
+      if (dados && dados.contatos) {
+        manualContacts = { ...manualContacts, ...dados.contatos };
+      }
+      if (dados && dados.cidades) {
+        manualCities = { ...manualCities, ...dados.cidades };
+      }
+    })
+    .catch(() => {
+      // segue só com o que já tem do navegador
+    });
 }
 
 function renderCityCell(driverName, city, onSaved) {
@@ -672,8 +809,8 @@ function renderCityCell(driverName, city, onSaved) {
   wrap.className = "no-contact add-contact-link";
   wrap.innerText = "+ Definir cidade";
   wrap.title = "Cadastrar a cidade manualmente para este entregador";
-  wrap.onclick = () => {
-    const input = window.prompt(`Cidade de ${driverName} (ex: Valença - RJ):`, "");
+  wrap.onclick = async () => {
+    const input = await askInputModal(`Cidade de ${driverName}`, "ex: Valença - RJ");
     if (!input || !input.trim()) return;
     saveManualCity(driverName, input.trim());
     toast(`Cidade de ${firstName(driverName)} salva`, "good");
