@@ -64,6 +64,8 @@
               <button class="print print-ghost" id="btnImportarBRs" type="button">📥 Importar BRs (SLA)</button>
               <button class="print" id="btnAtualizarDados" type="button">🔄 Atualizar Dados</button>
               <button class="print print-ghost" id="btnAbrirLog" type="button" title="Abrir o log detalhado da última atualização">📄 Ver Log</button>
+              <button class="print print-ghost" id="btnFazerLogin" type="button" title="Abre o SPX pra você fazer login manualmente">🔑 Fazer Login</button>
+              <button class="print print-ghost" id="btnSairLogin" type="button" title="Apaga a sessão salva do SPX — só use pra trocar de conta">🚪 Sair do Login</button>
           </div>
           <div class="actions-group">
               <span id="licenseBadge" class="license-badge">🔑 —</span>
@@ -547,6 +549,25 @@ if (window.electronAPI) {
   if (btnLog) {
     btnLog.addEventListener('click', () => {
       window.electronAPI.abrirUltimoLog();
+    });
+  }
+
+  const btnFazerLogin = document.getElementById('btnFazerLogin');
+  if (btnFazerLogin) {
+    btnFazerLogin.addEventListener('click', () => {
+      window.electronAPI.fazerLogin();
+    });
+  }
+
+  const btnSairLogin = document.getElementById('btnSairLogin');
+  if (btnSairLogin) {
+    btnSairLogin.addEventListener('click', () => {
+      const confirmado = confirm(
+        'Isso vai apagar o login salvo do SPX. Na próxima vez, vai pedir pra logar de novo (pode ser em outra conta).\n\nTem certeza que quer sair?'
+      );
+      if (confirmado) {
+        window.electronAPI.sairLogin();
+      }
     });
   }
 
