@@ -68,6 +68,7 @@ let cepToCity = {};
 let driverContacts = {};
 let stationSet = new Set();
 let currentView = "GENERAL"; // GENERAL | SLA | DS | MANIFESTO
+let activePage = "HOME"; // HOME | CITY | BACKLOG | PNR — qual página está visível agora (pro botão de Relatório saber o que exportar)
 let sortState = { key: "pending", dir: "desc" };
 const GOAL_STORAGE_KEY = "xpt_goal_v1";
 let GOAL = 98;
@@ -1580,23 +1581,20 @@ function getOccurrenceReasonKey(rows) {
   return null;
 }
 
-function buildOffendersReportData() {
-  const stationValue = stationSelect ? stationSelect.value : "";
-  let rows = slaRows.filter((r) => (r.Status || "").toString().trim().toLowerCase() === "onhold");
-  if (stationValue) {
-    rows = rows.filter((r) => (r["Current Station"] || "").toString().trim() === stationValue);
-  }
-
-  const reasonKey = getOccurrenceReasonKey(rows);
+// Agrupa uma lista de linhas em "cidade > entregador > contagem", de
+// forma genérica — usado pelos 3 tipos de relatório (SLA/DS/Manifesto,
+// Backlog, PNR), cada um passando sua própria forma de achar a
+// cidade/entregador/motivo de cada linha.
+function groupRowsByCityAndDriver(rows, { cityOf, driverOf, reasonOf }) {
   const byCity = {};
 
   rows.forEach((r) => {
-    const city = cepToCity[r["Postal Code"]] || "Cidade não identificada";
+    const city = cityOf(r) || "Cidade não identificada";
+    const driver = driverOf(r) || "Sem entregador";
     if (!byCity[city]) byCity[city] = { drivers: {}, reasons: new Set() };
-    const driver = r["Driver Name"] || "Sem entregador";
     byCity[city].drivers[driver] = (byCity[city].drivers[driver] || 0) + 1;
-    if (reasonKey) {
-      const reason = (r[reasonKey] || "").toString().trim();
+    if (reasonOf) {
+      const reason = (reasonOf(r) || "").toString().trim();
       if (reason) byCity[city].reasons.add(reason);
     }
   });
@@ -1611,13 +1609,162 @@ function buildOffendersReportData() {
     })
     .sort((a, b) => b.total - a.total);
 
-  return { cities, hasReasonData: !!reasonKey };
+  return cities;
+}
+
+// ---- SLA / DS / Manifesto / Geral: ofensores por ocorrência (OnHold) ----
+function buildDeliveryOffendersReport(rows, reportLabel) {
+  const stationValue = stationSelect ? stationSelect.value : "";
+  let onHoldRows = rows.filter((r) => (r.Status || "").toString().trim().toLowerCase() === "onhold");
+  if (stationValue) {
+    onHoldRows = onHoldRows.filter((r) => (r["Current Station"] || "").toString().trim() === stationValue);
+  }
+
+  const reasonKey = getOccurrenceReasonKey(onHoldRows);
+  const cities = groupRowsByCityAndDriver(onHoldRows, {
+    cityOf: (r) => cepToCity[r["Postal Code"]],
+    driverOf: (r) => r["Driver Name"],
+    reasonOf: reasonKey ? (r) => r[reasonKey] : null,
+  });
+
+  return {
+    titleLine: `RELATÓRIO DE OFENSORES — ${reportLabel}`,
+    cities,
+    unitSingular: "ocorrência",
+    unitPlural: "ocorrências",
+    sectionLabel: "Maiores ofensores:",
+    reasonSectionLabel: "Motivo das ocorrências:",
+    noReasonText: "Não informado no arquivo carregado.",
+    emptyMessage: "Nenhuma ocorrência (OnHold) encontrada para gerar o relatório",
+  };
+}
+
+// ---- Backlog: ofensores por quantidade de pacotes parados ----
+function buildBacklogOffendersReport() {
+  const stationValue = stationSelect ? stationSelect.value : "";
+  const orderCityMap = buildOrderCityMap();
+  const driverCityMap = buildDriverCityMap();
+
+  let rows = backlogRows.map((r) => {
+    const driverName = extractHandlerName(r["Latest User Name"]);
+    const shipmentId = (r["Shipment ID"] || "").toString().trim();
+    const city = findManualCity(driverName) || orderCityMap[shipmentId] || driverCityMap[driverName] || null;
+    return { ...r, __driverName: driverName, __city: city };
+  });
+
+  if (stationValue) rows = rows.filter((r) => (r["Station Name"] || "").toString().trim() === stationValue);
+  if (backlogStatusFilter && backlogStatusFilter.value) {
+    rows = rows.filter((r) => (r["Latest Status"] || "").toString().trim() === backlogStatusFilter.value);
+  }
+  if (backlogDriverFilter && backlogDriverFilter.value) {
+    rows = rows.filter((r) => r.__driverName === backlogDriverFilter.value);
+  }
+  if (backlogCityFilter && backlogCityFilter.value) {
+    rows = rows.filter((r) => r.__city === backlogCityFilter.value);
+  }
+
+  const cities = groupRowsByCityAndDriver(rows, {
+    cityOf: (r) => r.__city,
+    driverOf: (r) => r.__driverName,
+    reasonOf: (r) => r["Latest Status"],
+  });
+
+  // Anota quantos desses pacotes estão em aging crítico, por cidade
+  cities.forEach((city) => {
+    const cityRows = rows.filter((r) => (r.__city || "Cidade não identificada") === city.name);
+    city.criticalCount = cityRows.filter((r) => agingRank(r["LM Leg Aging"]) === 3).length;
+  });
+
+  return {
+    titleLine: "RELATÓRIO DE OFENSORES — BACKLOG",
+    cities,
+    unitSingular: "pacote parado",
+    unitPlural: "pacotes parados",
+    sectionLabel: "Maiores ofensores (mais pacotes parados):",
+    reasonSectionLabel: "Status mais comuns:",
+    noReasonText: "Não informado no arquivo carregado.",
+    emptyMessage: "Nenhum pacote de Backlog encontrado para gerar o relatório",
+    extraCityLine: (city) =>
+      city.criticalCount > 0 ? `Aging crítico: ${city.criticalCount} pacote(s) parado(s) há mais tempo.` : null,
+  };
+}
+
+// ---- PNR: ofensores por quantidade de tickets em aberto ----
+function buildPnrOffendersReport() {
+  const now = Date.now();
+  const stationValue = stationSelect ? stationSelect.value : "";
+  const orderCityMap = buildOrderCityMap();
+  const driverCityMap = buildDriverCityMap();
+
+  let rows = pnrRows
+    .filter((r) => !stationValue || (r["Station"] || "").toString().trim() === stationValue)
+    .map((r) => {
+      const driverName = extractHandlerName(r["Driver"]);
+      const orderCity = orderCityMap[(r["SPXTN"] || "").toString().trim()];
+      const city = findManualCity(driverName) || orderCity || driverCityMap[driverName] || null;
+      const deadline = r["SLA Deadline"] ? new Date(r["SLA Deadline"].toString().replace(" ", "T")) : null;
+      const diffDays = deadline && !Number.isNaN(deadline.getTime()) ? (deadline.getTime() - now) / 86400000 : null;
+      return { ...r, __driverName: driverName, __city: city, __status: (r["Status"] || "").toString().trim(), __diffDays: diffDays };
+    });
+
+  if (pnrCityFilter && pnrCityFilter.value) rows = rows.filter((r) => r.__city === pnrCityFilter.value);
+
+  let openRows = rows.filter((r) => OPEN_PNR_STATUSES.includes(r.__status));
+  const scopeValue = pnrScopeFilter ? pnrScopeFilter.value : "open";
+  let baseRows = scopeValue === "all" ? rows : openRows;
+
+  if (pnrStatusFilter && pnrStatusFilter.value) baseRows = baseRows.filter((r) => r.__status === pnrStatusFilter.value);
+  if (pnrDriverFilter && pnrDriverFilter.value) baseRows = baseRows.filter((r) => r.__driverName === pnrDriverFilter.value);
+
+  const cities = groupRowsByCityAndDriver(baseRows, {
+    cityOf: (r) => r.__city,
+    driverOf: (r) => r.__driverName,
+    reasonOf: (r) => r.__status,
+  });
+
+  cities.forEach((city) => {
+    const cityRows = baseRows.filter((r) => (r.__city || "Cidade não identificada") === city.name);
+    city.valueAtRisk = cityRows.reduce((sum, r) => sum + (parseFloat(r["PNR Order Value"]) || 0), 0);
+    city.urgentCount = cityRows.filter((r) => pnrUrgencyRank(r.__diffDays) >= 2).length;
+  });
+
+  return {
+    titleLine: "RELATÓRIO DE OFENSORES — PNR",
+    cities,
+    unitSingular: "PNR em aberto",
+    unitPlural: "PNRs em aberto",
+    sectionLabel: "Maiores ofensores (mais PNRs em aberto):",
+    reasonSectionLabel: "Status mais comuns:",
+    noReasonText: "Não informado.",
+    emptyMessage: "Nenhuma PNR encontrada para gerar o relatório",
+    extraCityLine: (city) =>
+      `Valor em risco: R$ ${city.valueAtRisk.toFixed(2).replace(".", ",")}` +
+      (city.urgentCount > 0 ? ` — ${city.urgentCount} urgente(s).` : "."),
+  };
+}
+
+// Decide qual relatório montar de acordo com a página/aba ativa no
+// momento do clique — nunca mistura tudo junto.
+function buildReportForActiveView() {
+  if (activePage === "BACKLOG") return buildBacklogOffendersReport();
+  if (activePage === "PNR") return buildPnrOffendersReport();
+
+  // HOME ou CITY (Entregadores) — usa o mesmo conjunto de dados da
+  // aba SLA/DS/Manifesto que estava ativa (a tabela de Entregadores é
+  // sempre um detalhamento dessa mesma aba).
+  const { sla, ds, manifest } = getFilteredRows();
+  if (currentView === "DS") return buildDeliveryOffendersReport(ds, "DS");
+  if (currentView === "MANIFESTO") return buildDeliveryOffendersReport(manifest, "MANIFESTO");
+  if (currentView === "SLA") return buildDeliveryOffendersReport(sla, "SLA");
+  // GERAL: combina SLA + DS num relatório só
+  return buildDeliveryOffendersReport([...sla, ...ds], "GERAL (SLA & DS)");
 }
 
 function exportPdfReport() {
-  const { cities } = buildOffendersReportData();
-  if (!cities.length) {
-    toast("Nenhuma ocorrência (OnHold) encontrada para gerar o relatório", "warn");
+  const report = buildReportForActiveView();
+
+  if (!report.cities.length) {
+    toast(report.emptyMessage, "warn");
     return;
   }
 
@@ -1648,7 +1795,7 @@ function exportPdfReport() {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(14);
     pdf.setTextColor(255, 255, 255);
-    pdf.text("RELATÓRIO DE MAIORES OFENSORES", marginX, 33);
+    pdf.text(report.titleLine, marginX, 33);
     pdf.setFontSize(11);
     pdf.text(`– ${dateLabel}`, pageWidth - marginX, 33, { align: "right" });
     y = 80;
@@ -1656,7 +1803,7 @@ function exportPdfReport() {
 
   drawHeaderBar();
 
-  cities.forEach((city) => {
+  report.cities.forEach((city) => {
     ensureSpace(46);
     pdf.setFillColor(accentRgb[0], accentRgb[1], accentRgb[2]);
     pdf.rect(marginX, y, 4, 20, "F");
@@ -1668,7 +1815,7 @@ function exportPdfReport() {
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(11);
-    pdf.text("Maiores ofensores:", marginX, y);
+    pdf.text(report.sectionLabel, marginX, y);
     y += 17;
 
     pdf.setFont("helvetica", "normal");
@@ -1676,7 +1823,7 @@ function exportPdfReport() {
     const topOffenders = city.offenders.slice(0, 10);
     topOffenders.forEach((o) => {
       ensureSpace(16);
-      const label = `${o.count} ocorrência${o.count === 1 ? "" : "s"}`;
+      const label = `${o.count} ${o.count === 1 ? report.unitSingular : report.unitPlural}`;
       pdf.text(`•  ${o.name} – ${label}`, marginX + 10, y);
       y += 15.5;
     });
@@ -1687,17 +1834,25 @@ function exportPdfReport() {
       y += 15.5;
     }
 
+    if (report.extraCityLine) {
+      const extra = report.extraCityLine(city);
+      if (extra) {
+        ensureSpace(16);
+        pdf.setFont("helvetica", "bolditalic");
+        pdf.text(extra, marginX + 10, y);
+        y += 15.5;
+      }
+    }
+
     y += 8;
     ensureSpace(32);
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(11);
-    pdf.text("Motivo das ocorrências:", marginX, y);
+    pdf.text(report.reasonSectionLabel, marginX, y);
     y += 16;
 
     pdf.setFont("helvetica", "normal");
-    const reasonText = city.reasons.length
-      ? city.reasons.join(", ") + "."
-      : "Não informado no arquivo carregado.";
+    const reasonText = city.reasons.length ? city.reasons.join(", ") + "." : report.noReasonText;
     const wrapped = pdf.splitTextToSize(reasonText, pageWidth - marginX * 2 - 10);
     wrapped.forEach((line) => {
       ensureSpace(15);
@@ -1709,7 +1864,8 @@ function exportPdfReport() {
   });
 
   const stationLabel = stationSelect && stationSelect.value ? stationSelect.value.replace(/[^a-zA-Z0-9]+/g, "-") : "todos";
-  pdf.save(`relatorio-ofensores-${stationLabel}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  const reportSlug = report.titleLine.split("—")[1]?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "geral";
+  pdf.save(`relatorio-${reportSlug}-${stationLabel}-${new Date().toISOString().slice(0, 10)}.pdf`);
   toast("Relatório gerado com sucesso", "good");
 }
 
@@ -1924,6 +2080,7 @@ function setActiveNav(button) {
 function switchView(view) {
   hideStatusPage();
   if (view === "CITY") {
+    activePage = "CITY";
     homePage.style.display = "none";
     backlogPage.style.display = "none";
     pnrPage.style.display = "none";
@@ -1933,6 +2090,7 @@ function switchView(view) {
     return;
   }
   if (view === "BACKLOG") {
+    activePage = "BACKLOG";
     homePage.style.display = "none";
     cityPage.style.display = "none";
     pnrPage.style.display = "none";
@@ -1943,6 +2101,7 @@ function switchView(view) {
     return;
   }
   if (view === "PNR") {
+    activePage = "PNR";
     homePage.style.display = "none";
     cityPage.style.display = "none";
     backlogPage.style.display = "none";
@@ -1953,6 +2112,7 @@ function switchView(view) {
     return;
   }
 
+  activePage = "HOME";
   currentView = view;
   homePage.style.display = "grid";
   cityPage.style.display = "none";
