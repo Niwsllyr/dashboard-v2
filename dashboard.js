@@ -29,6 +29,7 @@ const btnManifest = document.getElementById("btnManifest");
 const btnExportCsv = document.getElementById("btnExportCsv");
 const btnClearRankingFilter = document.getElementById("btnClearRankingFilter");
 const btnExportPdf = document.getElementById("btnExportPdf");
+const btnExportTxt = document.getElementById("btnExportTxt");
 const homePage = document.getElementById("homePage");
 const cityPage = document.getElementById("cityPage");
 const backlogPage = document.getElementById("backlogPage");
@@ -1784,6 +1785,198 @@ function buildReportForActiveView() {
   // GERAL: combina SLA + DS num relatório só
   return buildDeliveryFullReport([...sla, ...ds], "GERAL (SLA & DS)", "SLA");
 }
+
+// ============================================================
+// RELATÓRIO TXT — versão curta, sem nome de cidade/entregador, só
+// quantidades. Pensado pra colar direto num grupo de WhatsApp.
+// ============================================================
+
+function pctBR(value) {
+  return String(value).replace(".", ",");
+}
+
+// ---- SLA / DS / Manifesto: um único indicador de % ----
+function buildDeliveryTxtSingle(rows, reportLabel, mode) {
+  const stationValue = stationSelect ? stationSelect.value : "";
+  const filteredRows = stationValue
+    ? rows.filter((r) => (r["Current Station"] || "").toString().trim() === stationValue)
+    : rows;
+  if (!filteredRows.length) return null;
+
+  const metrics = calculateMetrics(filteredRows, mode, cepToCity);
+  const totalAll = filteredRows.length;
+  const hubAssigned = metrics.statusMap["Hub Assigned"] || 0;
+  const hubReceived = metrics.statusMap["Hub Received"] || 0;
+  const emRota = Math.max(0, totalAll - metrics.delivered - metrics.onHoldCount - hubAssigned - hubReceived);
+  const stationLabel = stationValue || "Todas as estações";
+  const rateLabel = mode === "DS" ? "DS" : "SLA";
+
+  const lines = [
+    `🏛️ XPT: ${stationLabel}`,
+    "",
+    `📨 Total de Remessas (${reportLabel}): ${totalAll}`,
+    `⏳ Em Rota: ${emRota}`,
+    `🚚 Entregues: ${metrics.delivered}`,
+  ];
+  if (hubAssigned) lines.push(`📍 Hub Assigned: ${hubAssigned}`);
+  if (hubReceived) lines.push(`📥 Hub Received: ${hubReceived}`);
+  lines.push(
+    `⚠️ Ocorrências: ${metrics.onHoldCount} (ausente, recusado ou local fechado. Motoristas cientes para tentar reversão no que for possível)`,
+    "",
+    `📊 ${rateLabel}: ${pctBR(metrics.sla)}%`
+  );
+
+  return { text: lines.join("\n"), slug: reportLabel.toLowerCase() };
+}
+
+// ---- Geral: mostra SLA% e DS% juntos, contagens baseadas no SLA ----
+function buildDeliveryTxtGeral(slaRows, dsRows) {
+  const stationValue = stationSelect ? stationSelect.value : "";
+  const filteredSla = stationValue
+    ? slaRows.filter((r) => (r["Current Station"] || "").toString().trim() === stationValue)
+    : slaRows;
+  const filteredDs = stationValue
+    ? dsRows.filter((r) => (r["Current Station"] || "").toString().trim() === stationValue)
+    : dsRows;
+  if (!filteredSla.length && !filteredDs.length) return null;
+
+  const slaMetrics = calculateMetrics(filteredSla, "SLA", cepToCity);
+  const dsMetrics = calculateMetrics(filteredDs, "DS", cepToCity);
+  const totalAll = filteredSla.length;
+  const hubAssigned = slaMetrics.statusMap["Hub Assigned"] || 0;
+  const hubReceived = slaMetrics.statusMap["Hub Received"] || 0;
+  const emRota = Math.max(0, totalAll - slaMetrics.delivered - slaMetrics.onHoldCount - hubAssigned - hubReceived);
+  const stationLabel = stationValue || "Todas as estações";
+
+  const lines = [
+    `🏛️ XPT: ${stationLabel}`,
+    "",
+    `📨 Total de Remessas: ${totalAll}`,
+    `⏳ Em Rota: ${emRota}`,
+    `🚚 Entregues: ${slaMetrics.delivered}`,
+  ];
+  if (hubAssigned) lines.push(`📍 Hub Assigned: ${hubAssigned}`);
+  if (hubReceived) lines.push(`📥 Hub Received: ${hubReceived}`);
+  lines.push(
+    `⚠️ Ocorrências: ${slaMetrics.onHoldCount} (ausente, recusado ou local fechado. Motoristas cientes para tentar reversão no que for possível)`,
+    "",
+    `📊 SLA: ${pctBR(slaMetrics.sla)}%`,
+    `📊 DS: ${pctBR(dsMetrics.sla)}%`
+  );
+
+  return { text: lines.join("\n"), slug: "geral" };
+}
+
+// ---- Backlog ----
+function buildBacklogTxt() {
+  const stationValue = stationSelect ? stationSelect.value : "";
+  const orderCityMap = buildOrderCityMap();
+  const driverCityMap = buildDriverCityMap();
+
+  let rows = backlogRows.map((r) => {
+    const driverName = extractHandlerName(r["Latest User Name"]);
+    const shipmentId = (r["Shipment ID"] || "").toString().trim();
+    const city = findManualCity(driverName) || orderCityMap[shipmentId] || driverCityMap[driverName] || null;
+    return { ...r, __driverName: driverName, __city: city };
+  });
+  if (stationValue) rows = rows.filter((r) => (r["Station Name"] || "").toString().trim() === stationValue);
+  if (backlogStatusFilter && backlogStatusFilter.value) rows = rows.filter((r) => (r["Latest Status"] || "").toString().trim() === backlogStatusFilter.value);
+  if (backlogDriverFilter && backlogDriverFilter.value) rows = rows.filter((r) => r.__driverName === backlogDriverFilter.value);
+  if (backlogCityFilter && backlogCityFilter.value) rows = rows.filter((r) => r.__city === backlogCityFilter.value);
+  if (!rows.length) return null;
+
+  const summary = computeBacklogSummary(rows);
+  const stationLabel = stationValue || "Todas as estações";
+
+  const lines = [
+    `🏛️ XPT: ${stationLabel}`,
+    "",
+    `📦 Total Parado (Backlog): ${summary.total}`,
+    `🕐 Sem Tentativa: ${summary.noAttempt}`,
+    `✅ Já Tentados: ${summary.attempted}`,
+    `🔴 Aging Crítico: ${summary.critical}`,
+  ];
+
+  return { text: lines.join("\n"), slug: "backlog" };
+}
+
+// ---- PNR ----
+function buildPnrTxt() {
+  const now = Date.now();
+  const stationValue = stationSelect ? stationSelect.value : "";
+  const orderCityMap = buildOrderCityMap();
+  const driverCityMap = buildDriverCityMap();
+
+  let rows = pnrRows
+    .filter((r) => !stationValue || (r["Station"] || "").toString().trim() === stationValue)
+    .map((r) => {
+      const driverName = extractHandlerName(r["Driver"]);
+      const orderCity = orderCityMap[(r["SPXTN"] || "").toString().trim()];
+      const city = findManualCity(driverName) || orderCity || driverCityMap[driverName] || null;
+      const deadline = r["SLA Deadline"] ? new Date(r["SLA Deadline"].toString().replace(" ", "T")) : null;
+      const diffDays = deadline && !Number.isNaN(deadline.getTime()) ? (deadline.getTime() - now) / 86400000 : null;
+      return { ...r, __driverName: driverName, __city: city, __status: (r["Status"] || "").toString().trim(), __diffDays: diffDays };
+    });
+  if (pnrCityFilter && pnrCityFilter.value) rows = rows.filter((r) => r.__city === pnrCityFilter.value);
+  if (!rows.length) return null;
+
+  const openRows = rows.filter((r) => OPEN_PNR_STATUSES.includes(r.__status));
+  const valueAtRisk = openRows.reduce((sum, r) => sum + (parseFloat(r["PNR Order Value"]) || 0), 0);
+  const urgentCount = openRows.filter((r) => pnrUrgencyRank(r.__diffDays) >= 2).length;
+  const stationLabel = stationValue || "Todas as estações";
+
+  const lines = [
+    `🏛️ XPT: ${stationLabel}`,
+    "",
+    `🎫 Total de PNR: ${rows.length}`,
+    `🟡 Em Aberto: ${openRows.length}`,
+    `💰 Valor em Risco: R$ ${valueAtRisk.toFixed(2).replace(".", ",")}`,
+    `⏰ Vencendo/Vencidas: ${urgentCount}`,
+  ];
+
+  return { text: lines.join("\n"), slug: "pnr" };
+}
+
+function buildTxtForActiveView() {
+  if (activePage === "BACKLOG") return buildBacklogTxt();
+  if (activePage === "PNR") return buildPnrTxt();
+
+  const { sla, ds, manifest } = getFilteredRows();
+  if (currentView === "DS") return buildDeliveryTxtSingle(ds, "DS", "DS");
+  if (currentView === "MANIFESTO") return buildDeliveryTxtSingle(manifest, "Manifesto", "DS");
+  if (currentView === "SLA") return buildDeliveryTxtSingle(sla, "SLA", "SLA");
+  return buildDeliveryTxtGeral(sla, ds);
+}
+
+async function exportTxtReport() {
+  const report = buildTxtForActiveView();
+
+  if (!report) {
+    toast("Nenhum dado carregado para gerar o relatório", "warn");
+    return;
+  }
+
+  let copiado = false;
+  try {
+    await navigator.clipboard.writeText(report.text);
+    copiado = true;
+  } catch {
+    copiado = false;
+  }
+
+  const blob = new Blob([report.text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const stationLabel = stationSelect && stationSelect.value ? stationSelect.value.replace(/[^a-zA-Z0-9]+/g, "-") : "todos";
+  a.download = `relatorio-${report.slug}-${stationLabel}-${new Date().toISOString().slice(0, 10)}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  toast(copiado ? "Relatório TXT copiado e baixado!" : "Relatório TXT baixado!", "good");
+}
+
+btnExportTxt.addEventListener("click", exportTxtReport);
 
 function exportPdfReport() {
   const report = buildReportForActiveView();
