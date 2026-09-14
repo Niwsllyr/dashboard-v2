@@ -1608,7 +1608,7 @@ function buildDeliveryFullReport(rows, reportLabel, mode) {
   const rateLabel = `${mode === "DS" ? "DS" : "SLA"}%`;
 
   const cityColumns = ["Cidade", "Total", "Entregues", "Pendentes", rateLabel];
-  const cityWidths = [0.34, 0.16, 0.17, 0.16, 0.17];
+  const cityWidths = [0.40, 0.15, 0.15, 0.15, 0.15];
   const cityRows = [...metrics.citySLA]
     .sort((a, b) => parseFloat(a.sla) - parseFloat(b.sla))
     .map((c) => ({
@@ -1617,7 +1617,7 @@ function buildDeliveryFullReport(rows, reportLabel, mode) {
     }));
 
   const driverColumns = ["Entregador", "Total", "Entregues", "Pendentes", rateLabel];
-  const driverWidths = [0.34, 0.16, 0.17, 0.16, 0.17];
+  const driverWidths = [0.40, 0.15, 0.15, 0.15, 0.15];
   const driverRows = [...metrics.driverSLA]
     .sort((a, b) => parseFloat(a.sla) - parseFloat(b.sla))
     .map((d) => ({
@@ -1840,6 +1840,18 @@ function exportPdfReport() {
     y += 28;
   }
 
+  // Encolhe o texto (com "…" no final) até caber na largura da
+  // coluna, em vez de deixar o jsPDF quebrar linha — quebra de linha
+  // bagunçava a tabela, pois a altura da linha era fixa.
+  function fitText(text, maxWidth) {
+    if (pdf.getTextWidth(text) <= maxWidth) return text;
+    let truncated = text;
+    while (truncated.length > 1 && pdf.getTextWidth(truncated + "…") > maxWidth) {
+      truncated = truncated.slice(0, -1);
+    }
+    return truncated + "…";
+  }
+
   function drawTable(columns, widthsFractions, rows) {
     if (!rows.length) return;
     const colWidths = widthsFractions.map((f) => f * usableWidth);
@@ -1854,7 +1866,7 @@ function exportPdfReport() {
       pdf.setTextColor(255, 255, 255);
       let x = marginX;
       columns.forEach((label, i) => {
-        pdf.text(label, x + 5, y - 1);
+        pdf.text(fitText(label, colWidths[i] - 8), x + 5, y - 1);
         x += colWidths[i];
       });
       y += rowH;
@@ -1885,7 +1897,10 @@ function exportPdfReport() {
       }
       let x = marginX;
       row.cells.forEach((cell, i) => {
-        pdf.text(String(cell), x + 5, y - 1, { maxWidth: colWidths[i] - 8 });
+        // Corta o texto com "…" em vez de quebrar linha — quebrar
+        // linha bagunçava a tabela (o texto da linha de baixo ficava
+        // embolado em cima da linha seguinte)
+        pdf.text(fitText(String(cell), colWidths[i] - 8), x + 5, y - 1);
         x += colWidths[i];
       });
       y += rowH;
