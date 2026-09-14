@@ -64,8 +64,11 @@
               <button class="print print-ghost" id="btnImportarBRs" type="button">📥 Importar BRs (SLA)</button>
               <button class="print" id="btnAtualizarDados" type="button">🔄 Atualizar Dados</button>
               <button class="print print-ghost" id="btnAbrirLog" type="button" title="Abrir o log detalhado da última atualização">📄 Ver Log</button>
-              <button class="print print-ghost" id="btnFazerLogin" type="button" title="Abre o SPX pra você fazer login manualmente">🔑 Fazer Login</button>
-              <button class="print print-ghost" id="btnSairLogin" type="button" title="Apaga a sessão salva do SPX — só use pra trocar de conta">🚪 Sair do Login</button>
+              <select id="perfilSpxSelect" class="station-badge" title="Perfil de login do SPX usado nas atualizações">
+                  <option value="">Carregando perfis...</option>
+              </select>
+              <button class="print print-ghost" id="btnFazerLogin" type="button" title="Abre o SPX pra fazer login no perfil selecionado (ou criar um novo)">🔑 Fazer Login</button>
+              <button class="print print-ghost" id="btnSairLogin" type="button" title="Apaga a sessão salva do perfil selecionado — só use pra trocar de conta">🚪 Sair do Login</button>
           </div>
           <div class="actions-group">
               <span id="licenseBadge" class="license-badge">🔑 —</span>
@@ -552,21 +555,78 @@ if (window.electronAPI) {
     });
   }
 
+  // ==========================================
+  // PERFIS DE LOGIN DO SPX (dá pra ter mais de um salvo)
+  // ==========================================
+
+  const NOVO_PERFIL_VALOR = '__novo__';
+  const perfilSelect = document.getElementById('perfilSpxSelect');
+
+  function preencherPerfilSelect(perfis, ativo) {
+    if (!perfilSelect) return;
+    const lista = perfis && perfis.length ? perfis : [];
+    perfilSelect.innerHTML =
+      lista.map((nome) => `<option value="${nome}">${nome}</option>`).join('') +
+      `<option value="${NOVO_PERFIL_VALOR}">➕ Nova conta...</option>`;
+    if (ativo && lista.includes(ativo)) perfilSelect.value = ativo;
+    else if (lista.length) perfilSelect.value = lista[0];
+  }
+
+  // Chamado pelo main.js sempre que a lista de perfis muda (depois
+  // de logar, sair, ou trocar de perfil)
+  window.xptAtualizarPerfis = function (perfis, ativo) {
+    preencherPerfilSelect(perfis, ativo);
+  };
+
+  if (perfilSelect) {
+    window.electronAPI.listarPerfis().then(({ perfis, ativo }) => {
+      preencherPerfilSelect(perfis, ativo);
+    });
+
+    perfilSelect.addEventListener('change', () => {
+      if (perfilSelect.value === NOVO_PERFIL_VALOR) {
+        // Não seleciona de verdade essa opção — é só um atalho pra
+        // criar. Volta pro perfil que estava antes.
+        const nome = (prompt('Nome desse novo perfil/conta (ex: "Zé Doca", "Rio 03"):') || '').trim();
+        window.electronAPI.listarPerfis().then(({ perfis, ativo }) => {
+          preencherPerfilSelect(perfis, ativo);
+          if (nome) {
+            toast(`Abrindo o SPX pra logar no novo perfil "${nome}"...`, 'info');
+            window.electronAPI.fazerLogin(nome);
+          }
+        });
+        return;
+      }
+      window.electronAPI.selecionarPerfil(perfilSelect.value);
+      toast(`Perfil ativo: ${perfilSelect.value}`, 'good');
+    });
+  }
+
   const btnFazerLogin = document.getElementById('btnFazerLogin');
   if (btnFazerLogin) {
     btnFazerLogin.addEventListener('click', () => {
-      window.electronAPI.fazerLogin();
+      const nomeAtual = perfilSelect && perfilSelect.value && perfilSelect.value !== NOVO_PERFIL_VALOR
+        ? perfilSelect.value
+        : '';
+      window.electronAPI.fazerLogin(nomeAtual);
     });
   }
 
   const btnSairLogin = document.getElementById('btnSairLogin');
   if (btnSairLogin) {
     btnSairLogin.addEventListener('click', () => {
+      const nomeAtual = perfilSelect && perfilSelect.value && perfilSelect.value !== NOVO_PERFIL_VALOR
+        ? perfilSelect.value
+        : '';
+      if (!nomeAtual) {
+        toast('Nenhum perfil selecionado.', 'warn');
+        return;
+      }
       const confirmado = confirm(
-        'Isso vai apagar o login salvo do SPX. Na próxima vez, vai pedir pra logar de novo (pode ser em outra conta).\n\nTem certeza que quer sair?'
+        `Isso vai apagar o login salvo do perfil "${nomeAtual}". Na próxima vez que ele for usado, vai pedir pra logar de novo.\n\nTem certeza?`
       );
       if (confirmado) {
-        window.electronAPI.sairLogin();
+        window.electronAPI.sairLogin(nomeAtual);
       }
     });
   }
