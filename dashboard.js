@@ -1956,24 +1956,12 @@ async function exportTxtReport() {
     return;
   }
 
-  let copiado = false;
   try {
     await navigator.clipboard.writeText(report.text);
-    copiado = true;
+    toast("Relatório copiado! Já pode colar no WhatsApp.", "good");
   } catch {
-    copiado = false;
+    toast("Não consegui copiar automaticamente — copie o texto manualmente.", "warn");
   }
-
-  const blob = new Blob([report.text], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  const stationLabel = stationSelect && stationSelect.value ? stationSelect.value.replace(/[^a-zA-Z0-9]+/g, "-") : "todos";
-  a.download = `relatorio-${report.slug}-${stationLabel}-${new Date().toISOString().slice(0, 10)}.txt`;
-  a.click();
-  URL.revokeObjectURL(url);
-
-  toast(copiado ? "Relatório TXT copiado e baixado!" : "Relatório TXT baixado!", "good");
 }
 
 btnExportTxt.addEventListener("click", exportTxtReport);
