@@ -1,6 +1,6 @@
 import { processCSV } from "./csvReader.js?v=20260913a";
 import { processBacklogFile } from "./backlogReader.js?v=20260912b";
-import { renderCharts, renderBacklogCharts, renderPnrCharts } from "./charts.js?v=20260913b";
+import { renderCharts, renderBacklogCharts, renderPnrCharts } from "./charts.js?v=20260913c";
 import { calculateMetrics, calculateOperationScore } from "./metrics.js?v=20260912b";
 import { resolveCepsToCities } from "./cepresolver.js?v=20260912b";
 
@@ -11,6 +11,7 @@ const csvInput = document.getElementById("csvInput");
 const dsInput = document.getElementById("dsInput");
 const backlogInput = document.getElementById("backlogInput");
 const pnrInput = document.getElementById("pnrInput");
+const manifestInput = document.getElementById("manifestInput");
 const driverSelect = document.getElementById("driverSelect");
 const citySelect = document.getElementById("citySelect");
 const statusSelect = document.getElementById("statusSelect");
@@ -24,6 +25,7 @@ const btnDS = document.getElementById("btnDS");
 const btnBacklog = document.getElementById("btnBacklog");
 const btnPnr = document.getElementById("btnPnr");
 const btnCity = document.getElementById("btnCity");
+const btnManifest = document.getElementById("btnManifest");
 const btnExportCsv = document.getElementById("btnExportCsv");
 const btnClearRankingFilter = document.getElementById("btnClearRankingFilter");
 const btnExportPdf = document.getElementById("btnExportPdf");
@@ -61,10 +63,11 @@ let slaRows = [];
 let dsRows = [];
 let backlogRows = [];
 let pnrRows = [];
+let manifestRows = [];
 let cepToCity = {};
 let driverContacts = {};
 let stationSet = new Set();
-let currentView = "GENERAL"; // GENERAL | SLA | DS
+let currentView = "GENERAL"; // GENERAL | SLA | DS | MANIFESTO
 let sortState = { key: "pending", dir: "desc" };
 const GOAL_STORAGE_KEY = "xpt_goal_v1";
 let GOAL = 98;
@@ -1043,7 +1046,7 @@ if (pnrDriverFilter) pnrDriverFilter.addEventListener("change", renderPnrView);
 
 function refreshStationSet() {
   stationSet = new Set();
-  [...slaRows, ...dsRows].forEach((row) => {
+  [...slaRows, ...dsRows, ...manifestRows].forEach((row) => {
     const value = row["Current Station"];
     if (value && value.toString().trim()) stationSet.add(value.toString().trim());
   });
@@ -1115,7 +1118,7 @@ window.toast = toast;
 // Resolução de CEP -> Cidade
 // ------------------------------------------------------------
 async function resolveCeps() {
-  const allCeps = [...slaRows.map((r) => r["Postal Code"]), ...dsRows.map((r) => r["Postal Code"])].filter(Boolean);
+  const allCeps = [...slaRows.map((r) => r["Postal Code"]), ...dsRows.map((r) => r["Postal Code"]), ...manifestRows.map((r) => r["Postal Code"])].filter(Boolean);
   if (!allCeps.length) return;
 
   const total = new Set(allCeps).size;
@@ -1148,36 +1151,41 @@ function refreshCitySelect() {
 function getFilteredRows() {
   let sla = [...slaRows];
   let ds = [...dsRows];
+  let manifest = [...manifestRows];
 
   if (stationSelect && stationSelect.value) {
     sla = sla.filter((r) => (r["Current Station"] || "").toString().trim() === stationSelect.value);
     ds = ds.filter((r) => (r["Current Station"] || "").toString().trim() === stationSelect.value);
+    manifest = manifest.filter((r) => (r["Current Station"] || "").toString().trim() === stationSelect.value);
   }
   if (driverSelect.value) {
     sla = sla.filter((r) => r["Driver Name"] === driverSelect.value);
     ds = ds.filter((r) => r["Driver Name"] === driverSelect.value);
+    manifest = manifest.filter((r) => r["Driver Name"] === driverSelect.value);
   }
   if (citySelect.value) {
     sla = sla.filter((r) => cepToCity[r["Postal Code"]] === citySelect.value);
     ds = ds.filter((r) => cepToCity[r["Postal Code"]] === citySelect.value);
+    manifest = manifest.filter((r) => cepToCity[r["Postal Code"]] === citySelect.value);
   }
   if (statusSelect.value) {
     sla = sla.filter((r) => r.Status === statusSelect.value);
     ds = ds.filter((r) => r.Status === statusSelect.value);
+    manifest = manifest.filter((r) => r.Status === statusSelect.value);
   }
-  return { sla, ds };
+  return { sla, ds, manifest };
 }
 
 function refresh() {
-  const { sla, ds } = getFilteredRows();
-  renderView(sla, ds);
+  const { sla, ds, manifest } = getFilteredRows();
+  renderView(sla, ds, manifest);
 }
 
 // ------------------------------------------------------------
 // Renderização principal
 // ------------------------------------------------------------
 function hasAnyData() {
-  return slaRows.length > 0 || dsRows.length > 0;
+  return slaRows.length > 0 || dsRows.length > 0 || manifestRows.length > 0;
 }
 
 function syncEmptyState() {
@@ -1196,7 +1204,7 @@ function syncEmptyState() {
   return hasData;
 }
 
-function renderView(slaFiltered, dsFiltered) {
+function renderView(slaFiltered, dsFiltered, manifestFiltered = []) {
   if (!syncEmptyState()) return;
 
   if (btnClearRankingFilter) {
@@ -1205,6 +1213,7 @@ function renderView(slaFiltered, dsFiltered) {
 
   const slaMetrics = calculateMetrics(slaFiltered, "SLA", cepToCity);
   const dsMetrics = calculateMetrics(dsFiltered, "DS", cepToCity);
+  const manifestMetrics = calculateMetrics(manifestFiltered, "DS", cepToCity);
   const prevSnapshot = getPreviousSnapshot();
 
   if (currentView === "GENERAL") {
@@ -1219,6 +1228,9 @@ function renderView(slaFiltered, dsFiltered) {
     setClass("kpiSlaCard", "kpi " + slaClass(sla) + (sla < GOAL ? " kpi-flash" : ""));
     animateNumber("kpiDs", ds, { suffix: "%", decimals: 2 });
     setClass("kpiDsCard", "kpi " + slaClass(ds) + (ds < GOAL ? " kpi-flash" : ""));
+    document.getElementById("kpiSlaCard").style.display = "flex";
+    document.getElementById("kpiDsCard").style.display = "flex";
+    document.getElementById("kpiManifestCard").style.display = "none";
 
     setTrend("kpiSlaTrend", prevSnapshot ? sla - prevSnapshot.sla : null, prevSnapshot?.date);
     setTrend("kpiDsTrend", prevSnapshot ? ds - prevSnapshot.ds : null, prevSnapshot?.date);
@@ -1232,25 +1244,32 @@ function renderView(slaFiltered, dsFiltered) {
     );
     renderDriverTable(slaMetrics.driverSLA, true);
   } else {
-    const metrics = currentView === "SLA" ? slaMetrics : dsMetrics;
+    const metrics =
+      currentView === "SLA" ? slaMetrics : currentView === "MANIFESTO" ? manifestMetrics : dsMetrics;
+    const rawData =
+      currentView === "SLA" ? slaFiltered : currentView === "MANIFESTO" ? manifestFiltered : dsFiltered;
     const value = parseFloat(metrics.sla) || 0;
     animateNumber("kpiTotal", metrics.total);
     animateNumber("kpiDelivered", metrics.delivered);
     animateNumber("kpiPending", metrics.pending);
     animateNumber("kpiOnHold", metrics.onHoldCount);
 
+    document.getElementById("kpiSlaCard").style.display = currentView === "SLA" ? "flex" : "none";
+    document.getElementById("kpiDsCard").style.display = currentView === "DS" ? "flex" : "none";
+    document.getElementById("kpiManifestCard").style.display = currentView === "MANIFESTO" ? "flex" : "none";
+
     if (currentView === "SLA") {
       animateNumber("kpiSla", value, { suffix: "%", decimals: 2 });
       setClass("kpiSlaCard", "kpi " + slaClass(value) + (value < GOAL ? " kpi-flash" : ""));
       setTrend("kpiSlaTrend", prevSnapshot ? value - prevSnapshot.sla : null, prevSnapshot?.date);
-      document.getElementById("kpiSlaCard").style.display = "flex";
-      document.getElementById("kpiDsCard").style.display = "none";
+    } else if (currentView === "MANIFESTO") {
+      animateNumber("kpiManifest", value, { suffix: "%", decimals: 2 });
+      setClass("kpiManifestCard", "kpi " + slaClass(value) + (value < GOAL ? " kpi-flash" : ""));
+      setTrend("kpiManifestTrend", null, null);
     } else {
       animateNumber("kpiDs", value, { suffix: "%", decimals: 2 });
       setClass("kpiDsCard", "kpi " + slaClass(value) + (value < GOAL ? " kpi-flash" : ""));
       setTrend("kpiDsTrend", prevSnapshot ? value - prevSnapshot.ds : null, prevSnapshot?.date);
-      document.getElementById("kpiDsCard").style.display = "flex";
-      document.getElementById("kpiSlaCard").style.display = "none";
     }
 
     setText("kpiAlert", value < GOAL ? `🚨 Abaixo da meta (${GOAL}%)` : "✅ Meta batida");
@@ -1258,7 +1277,7 @@ function renderView(slaFiltered, dsFiltered) {
     renderCharts(
       { ...metrics, driverSLA: metrics.driverSLA, citySLA: metrics.citySLA },
       currentView,
-      { status: statusSelect.value, rawData: currentView === "SLA" ? slaFiltered : dsFiltered, cepToCity, goal: GOAL }
+      { status: statusSelect.value, rawData, cepToCity, goal: GOAL }
     );
     renderDriverTable(metrics.driverSLA, false);
   }
@@ -1486,6 +1505,7 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "4") btnBacklog.click();
   else if (e.key === "5") btnPnr.click();
   else if (e.key === "6") btnCity.click();
+  else if (e.key === "7") btnManifest.click();
 });
 
 // ------------------------------------------------------------
@@ -1841,6 +1861,38 @@ if (pnrInput) {
   });
 }
 
+if (manifestInput) {
+  manifestInput.addEventListener("change", async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    let combinedData = [];
+    const combinedFields = new Set();
+    for (const file of files) {
+      try {
+        const { data, fields } = await processCSV(file);
+        combinedData = combinedData.concat(data);
+        fields.forEach((f) => combinedFields.add(f));
+      } catch (err) {
+        console.error(err);
+        toast(`Não foi possível ler o arquivo "${file.name}"`, "bad");
+      }
+    }
+
+    manifestRows = combinedData;
+    extractDriverContacts(manifestRows, [...combinedFields]);
+    refreshStationSet();
+    refreshStationSelect();
+
+    const filesLabel = files.length > 1 ? `${files.length} arquivos` : "1 arquivo";
+    const dupCount = detectDuplicates(combinedData);
+    const dupWarning = dupCount > 0 ? ` — ⚠️ ${dupCount} pedido(s) duplicado(s) (mesmo Order ID)` : "";
+    toast(`Manifesto carregado (${filesLabel}): ${manifestRows.length} pedidos${dupWarning}`, dupCount > 0 ? "warn" : "good");
+    await resolveCeps();
+    refresh();
+  });
+}
+
 stationSelect.addEventListener("change", () => {
   try {
     localStorage.setItem(STATION_STORAGE_KEY, stationSelect.value);
@@ -1865,7 +1917,7 @@ statusSelect.addEventListener("change", refresh);
 // Navegação entre abas
 // ------------------------------------------------------------
 function setActiveNav(button) {
-  [btnGeneral, btnSLA, btnDS, btnBacklog, btnPnr, btnCity].forEach((b) => b.classList.remove("active"));
+  [btnGeneral, btnSLA, btnDS, btnBacklog, btnPnr, btnCity, btnManifest].forEach((b) => b.classList.remove("active"));
   button.classList.add("active");
 }
 
@@ -1910,15 +1962,23 @@ function switchView(view) {
   if (view === "GENERAL") {
     document.getElementById("kpiSlaCard").style.display = "flex";
     document.getElementById("kpiDsCard").style.display = "flex";
+    document.getElementById("kpiManifestCard").style.display = "none";
     setActiveNav(btnGeneral);
   } else if (view === "SLA") {
     document.getElementById("kpiSlaCard").style.display = "flex";
     document.getElementById("kpiDsCard").style.display = "none";
+    document.getElementById("kpiManifestCard").style.display = "none";
     setActiveNav(btnSLA);
   } else if (view === "DS") {
     document.getElementById("kpiDsCard").style.display = "flex";
     document.getElementById("kpiSlaCard").style.display = "none";
+    document.getElementById("kpiManifestCard").style.display = "none";
     setActiveNav(btnDS);
+  } else if (view === "MANIFESTO") {
+    document.getElementById("kpiManifestCard").style.display = "flex";
+    document.getElementById("kpiSlaCard").style.display = "none";
+    document.getElementById("kpiDsCard").style.display = "none";
+    setActiveNav(btnManifest);
   }
   refresh();
 }
@@ -1929,6 +1989,7 @@ btnDS.onclick = () => switchView("DS");
 btnBacklog.onclick = () => switchView("BACKLOG");
 btnPnr.onclick = () => switchView("PNR");
 btnCity.onclick = () => switchView("CITY");
+btnManifest.onclick = () => switchView("MANIFESTO");
 
 function hideStatusPage() {
   const el = document.getElementById("statusPage");
@@ -1960,8 +2021,9 @@ window.handleRankingClick = function (label, mode, statusFilter) {
 };
 
 window.handleStatusClick = function (status) {
-  const { sla, ds } = getFilteredRows();
-  const rows = (currentView === "DS" ? ds : sla).filter((r) => r.Status === status);
+  const { sla, ds, manifest } = getFilteredRows();
+  const dataset = currentView === "DS" ? ds : currentView === "MANIFESTO" ? manifest : sla;
+  const rows = dataset.filter((r) => r.Status === status);
   const grouped = {};
   rows.forEach((r) => {
     const driver = (r["Driver Name"] || "").toString().trim();
