@@ -98,7 +98,7 @@ function renderCharts(metrics, mode = "default", ctx = {}) {
   let rankTitle = "";
   let rankColors = [];
 
-  if (mode === "DS") {
+  if (mode === "DS" || mode === "MANIFESTO") {
     rankTitle = "Performance por Cidade (%)";
     const cityStats = {};
     (ctx.rawData || []).forEach((row) => {
