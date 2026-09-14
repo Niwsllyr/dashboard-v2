@@ -1570,77 +1570,81 @@ function exportDriverTableCsv() {
   toast("CSV exportado com sucesso", "good");
 }
 
-function getOccurrenceReasonKey(rows) {
-  const candidates = [
-    "Reason", "Failure Reason", "Exception Reason", "Delivery Exception",
-    "Sub Status", "SubStatus", "Motivo", "Reason Description", "Exception Description",
-  ];
-  for (const key of candidates) {
-    if (rows.some((r) => (r[key] || "").toString().trim())) return key;
-  }
-  return null;
-}
+// ============================================================
+// RELATÓRIO PDF COMPLETO — funciona por aba (SLA / DS / Manifesto /
+// Geral / Backlog / PNR / Entregadores), mostrando tudo que está na
+// tela: totais, status, detalhamento por cidade e por entregador,
+// com quem está performando pior destacado em vermelho.
+// ============================================================
 
-// Agrupa uma lista de linhas em "cidade > entregador > contagem", de
-// forma genérica — usado pelos 3 tipos de relatório (SLA/DS/Manifesto,
-// Backlog, PNR), cada um passando sua própria forma de achar a
-// cidade/entregador/motivo de cada linha.
-function groupRowsByCityAndDriver(rows, { cityOf, driverOf, reasonOf }) {
-  const byCity = {};
-
+// Agrupa linhas em contagens por uma chave (cidade OU entregador),
+// junto com quantos "critical"/"ruins" tem em cada grupo — reusado
+// pelo Backlog e pelo PNR.
+function groupCountsBy(rows, keyFn, isBadRowFn, extraFn) {
+  const map = {};
   rows.forEach((r) => {
-    const city = cityOf(r) || "Cidade não identificada";
-    const driver = driverOf(r) || "Sem entregador";
-    if (!byCity[city]) byCity[city] = { drivers: {}, reasons: new Set() };
-    byCity[city].drivers[driver] = (byCity[city].drivers[driver] || 0) + 1;
-    if (reasonOf) {
-      const reason = (reasonOf(r) || "").toString().trim();
-      if (reason) byCity[city].reasons.add(reason);
-    }
+    const key = keyFn(r) || "Não identificado";
+    if (!map[key]) map[key] = { total: 0, bad: 0, extra: 0 };
+    map[key].total++;
+    if (isBadRowFn && isBadRowFn(r)) map[key].bad++;
+    if (extraFn) map[key].extra += extraFn(r) || 0;
   });
-
-  const cities = Object.entries(byCity)
-    .map(([name, data]) => {
-      const offenders = Object.entries(data.drivers)
-        .map(([driverName, count]) => ({ name: driverName, count }))
-        .sort((a, b) => b.count - a.count);
-      const total = offenders.reduce((sum, o) => sum + o.count, 0);
-      return { name, total, offenders, reasons: [...data.reasons] };
-    })
-    .sort((a, b) => b.total - a.total);
-
-  return cities;
+  return Object.entries(map).map(([name, s]) => ({ name, total: s.total, bad: s.bad, extra: s.extra }));
 }
 
-// ---- SLA / DS / Manifesto / Geral: ofensores por ocorrência (OnHold) ----
-function buildDeliveryOffendersReport(rows, reportLabel) {
+// ---- SLA / DS / Manifesto / Geral ----
+function buildDeliveryFullReport(rows, reportLabel, mode) {
   const stationValue = stationSelect ? stationSelect.value : "";
-  let onHoldRows = rows.filter((r) => (r.Status || "").toString().trim().toLowerCase() === "onhold");
-  if (stationValue) {
-    onHoldRows = onHoldRows.filter((r) => (r["Current Station"] || "").toString().trim() === stationValue);
-  }
+  const filteredRows = stationValue
+    ? rows.filter((r) => (r["Current Station"] || "").toString().trim() === stationValue)
+    : rows;
 
-  const reasonKey = getOccurrenceReasonKey(onHoldRows);
-  const cities = groupRowsByCityAndDriver(onHoldRows, {
-    cityOf: (r) => cepToCity[r["Postal Code"]],
-    driverOf: (r) => r["Driver Name"],
-    reasonOf: reasonKey ? (r) => r[reasonKey] : null,
-  });
+  const metrics = calculateMetrics(filteredRows, mode, cepToCity);
+
+  const statusBreakdown = Object.entries(metrics.statusMap)
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const rateLabel = `${mode === "DS" ? "DS" : "SLA"}%`;
+
+  const cityColumns = ["Cidade", "Total", "Entregues", "Pendentes", rateLabel];
+  const cityWidths = [0.34, 0.16, 0.17, 0.16, 0.17];
+  const cityRows = [...metrics.citySLA]
+    .sort((a, b) => parseFloat(a.sla) - parseFloat(b.sla))
+    .map((c) => ({
+      cells: [c.name, String(c.total), String(c.delivered), String(c.pending), `${c.sla}%`],
+      bad: parseFloat(c.sla) < GOAL,
+    }));
+
+  const driverColumns = ["Entregador", "Total", "Entregues", "Pendentes", rateLabel];
+  const driverWidths = [0.34, 0.16, 0.17, 0.16, 0.17];
+  const driverRows = [...metrics.driverSLA]
+    .sort((a, b) => parseFloat(a.sla) - parseFloat(b.sla))
+    .map((d) => ({
+      cells: [d.name, String(d.total), String(d.delivered), String(d.pending), `${d.sla}%`],
+      bad: parseFloat(d.sla) < GOAL,
+    }));
 
   return {
-    titleLine: `RELATÓRIO DE OFENSORES — ${reportLabel}`,
-    cities,
-    unitSingular: "ocorrência",
-    unitPlural: "ocorrências",
-    sectionLabel: "Maiores ofensores:",
-    reasonSectionLabel: "Motivo das ocorrências:",
-    noReasonText: "Não informado no arquivo carregado.",
-    emptyMessage: "Nenhuma ocorrência (OnHold) encontrada para gerar o relatório",
+    titleLine: `RELATÓRIO COMPLETO — ${reportLabel}`,
+    emptyMessage: `Nenhum dado de ${reportLabel} carregado para gerar o relatório`,
+    isEmpty: filteredRows.length === 0,
+    summary: [
+      { label: "Total de pedidos", value: String(metrics.total) },
+      { label: "Entregues", value: String(metrics.delivered) },
+      { label: "Pendentes", value: String(metrics.pending) },
+      { label: "Ocorrências (OnHold)", value: String(metrics.onHoldCount) },
+      { label: rateLabel, value: `${metrics.sla}%` },
+    ],
+    statusBreakdown,
+    cityColumns, cityWidths, cityRows,
+    driverColumns, driverWidths, driverRows,
+    legendNote: `Linhas em vermelho: abaixo da meta de ${GOAL}%.`,
   };
 }
 
-// ---- Backlog: ofensores por quantidade de pacotes parados ----
-function buildBacklogOffendersReport() {
+// ---- Backlog ----
+function buildBacklogFullReport() {
   const stationValue = stationSelect ? stationSelect.value : "";
   const orderCityMap = buildOrderCityMap();
   const driverCityMap = buildDriverCityMap();
@@ -1656,41 +1660,50 @@ function buildBacklogOffendersReport() {
   if (backlogStatusFilter && backlogStatusFilter.value) {
     rows = rows.filter((r) => (r["Latest Status"] || "").toString().trim() === backlogStatusFilter.value);
   }
-  if (backlogDriverFilter && backlogDriverFilter.value) {
-    rows = rows.filter((r) => r.__driverName === backlogDriverFilter.value);
-  }
-  if (backlogCityFilter && backlogCityFilter.value) {
-    rows = rows.filter((r) => r.__city === backlogCityFilter.value);
-  }
+  if (backlogDriverFilter && backlogDriverFilter.value) rows = rows.filter((r) => r.__driverName === backlogDriverFilter.value);
+  if (backlogCityFilter && backlogCityFilter.value) rows = rows.filter((r) => r.__city === backlogCityFilter.value);
 
-  const cities = groupRowsByCityAndDriver(rows, {
-    cityOf: (r) => r.__city,
-    driverOf: (r) => r.__driverName,
-    reasonOf: (r) => r["Latest Status"],
-  });
+  const summary = computeBacklogSummary(rows);
+  const isCritical = (r) => agingRank(r["LM Leg Aging"]) === 3;
 
-  // Anota quantos desses pacotes estão em aging crítico, por cidade
-  cities.forEach((city) => {
-    const cityRows = rows.filter((r) => (r.__city || "Cidade não identificada") === city.name);
-    city.criticalCount = cityRows.filter((r) => agingRank(r["LM Leg Aging"]) === 3).length;
+  const statusMap = {};
+  rows.forEach((r) => {
+    const s = (r["Latest Status"] || "Sem status").toString().trim() || "Sem status";
+    statusMap[s] = (statusMap[s] || 0) + 1;
   });
+  const statusBreakdown = Object.entries(statusMap).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+
+  const columns = ["Nome", "Total parado", "Aging crítico", "Sem tentativa"];
+  const widths = [0.4, 0.2, 0.2, 0.2];
+
+  function toRows(keyFn) {
+    return groupCountsBy(rows, keyFn, isCritical, (r) => ((parseFloat(r["No. Attempts"]) || 0) <= 0 ? 1 : 0))
+      .sort((a, b) => b.bad - a.bad || b.total - a.total)
+      .map((g) => ({
+        cells: [g.name, String(g.total), String(g.bad), String(g.extra)],
+        bad: g.bad > 0,
+      }));
+  }
 
   return {
-    titleLine: "RELATÓRIO DE OFENSORES — BACKLOG",
-    cities,
-    unitSingular: "pacote parado",
-    unitPlural: "pacotes parados",
-    sectionLabel: "Maiores ofensores (mais pacotes parados):",
-    reasonSectionLabel: "Status mais comuns:",
-    noReasonText: "Não informado no arquivo carregado.",
+    titleLine: "RELATÓRIO COMPLETO — BACKLOG",
     emptyMessage: "Nenhum pacote de Backlog encontrado para gerar o relatório",
-    extraCityLine: (city) =>
-      city.criticalCount > 0 ? `Aging crítico: ${city.criticalCount} pacote(s) parado(s) há mais tempo.` : null,
+    isEmpty: rows.length === 0,
+    summary: [
+      { label: "Total parado", value: String(summary.total) },
+      { label: "Sem tentativa", value: String(summary.noAttempt) },
+      { label: "Já tentados", value: String(summary.attempted) },
+      { label: "Aging crítico", value: String(summary.critical) },
+    ],
+    statusBreakdown,
+    cityColumns: ["Cidade", ...columns.slice(1)], cityWidths: widths, cityRows: toRows((r) => r.__city),
+    driverColumns: columns, driverWidths: widths, driverRows: toRows((r) => r.__driverName),
+    legendNote: "Linhas em vermelho: têm pacote(s) em aging crítico.",
   };
 }
 
-// ---- PNR: ofensores por quantidade de tickets em aberto ----
-function buildPnrOffendersReport() {
+// ---- PNR ----
+function buildPnrFullReport() {
   const now = Date.now();
   const stationValue = stationSelect ? stationSelect.value : "";
   const orderCityMap = buildOrderCityMap();
@@ -1709,67 +1722,81 @@ function buildPnrOffendersReport() {
 
   if (pnrCityFilter && pnrCityFilter.value) rows = rows.filter((r) => r.__city === pnrCityFilter.value);
 
-  let openRows = rows.filter((r) => OPEN_PNR_STATUSES.includes(r.__status));
+  const openRows = rows.filter((r) => OPEN_PNR_STATUSES.includes(r.__status));
   const scopeValue = pnrScopeFilter ? pnrScopeFilter.value : "open";
   let baseRows = scopeValue === "all" ? rows : openRows;
-
   if (pnrStatusFilter && pnrStatusFilter.value) baseRows = baseRows.filter((r) => r.__status === pnrStatusFilter.value);
   if (pnrDriverFilter && pnrDriverFilter.value) baseRows = baseRows.filter((r) => r.__driverName === pnrDriverFilter.value);
 
-  const cities = groupRowsByCityAndDriver(baseRows, {
-    cityOf: (r) => r.__city,
-    driverOf: (r) => r.__driverName,
-    reasonOf: (r) => r.__status,
-  });
+  const totalValueAtRisk = openRows.reduce((sum, r) => sum + (parseFloat(r["PNR Order Value"]) || 0), 0);
+  const urgentCount = openRows.filter((r) => pnrUrgencyRank(r.__diffDays) >= 2).length;
 
-  cities.forEach((city) => {
-    const cityRows = baseRows.filter((r) => (r.__city || "Cidade não identificada") === city.name);
-    city.valueAtRisk = cityRows.reduce((sum, r) => sum + (parseFloat(r["PNR Order Value"]) || 0), 0);
-    city.urgentCount = cityRows.filter((r) => pnrUrgencyRank(r.__diffDays) >= 2).length;
+  const statusMap = {};
+  baseRows.forEach((r) => {
+    const s = r.__status || "Sem status";
+    statusMap[s] = (statusMap[s] || 0) + 1;
   });
+  const statusBreakdown = Object.entries(statusMap).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+
+  const isUrgent = (r) => pnrUrgencyRank(r.__diffDays) >= 2;
+  const columns = ["Nome", "Total aberto", "Urgentes", "Valor em risco"];
+  const widths = [0.36, 0.18, 0.18, 0.28];
+
+  function toRows(keyFn) {
+    return groupCountsBy(baseRows, keyFn, isUrgent, (r) => parseFloat(r["PNR Order Value"]) || 0)
+      .sort((a, b) => b.bad - a.bad || b.total - a.total)
+      .map((g) => ({
+        cells: [g.name, String(g.total), String(g.bad), `R$ ${g.extra.toFixed(2).replace(".", ",")}`],
+        bad: g.bad > 0,
+      }));
+  }
 
   return {
-    titleLine: "RELATÓRIO DE OFENSORES — PNR",
-    cities,
-    unitSingular: "PNR em aberto",
-    unitPlural: "PNRs em aberto",
-    sectionLabel: "Maiores ofensores (mais PNRs em aberto):",
-    reasonSectionLabel: "Status mais comuns:",
-    noReasonText: "Não informado.",
+    titleLine: "RELATÓRIO COMPLETO — PNR",
     emptyMessage: "Nenhuma PNR encontrada para gerar o relatório",
-    extraCityLine: (city) =>
-      `Valor em risco: R$ ${city.valueAtRisk.toFixed(2).replace(".", ",")}` +
-      (city.urgentCount > 0 ? ` — ${city.urgentCount} urgente(s).` : "."),
+    isEmpty: baseRows.length === 0,
+    summary: [
+      { label: "Total", value: String(rows.length) },
+      { label: "Em aberto", value: String(openRows.length) },
+      { label: "Valor em risco", value: `R$ ${totalValueAtRisk.toFixed(2).replace(".", ",")}` },
+      { label: "Urgentes", value: String(urgentCount) },
+    ],
+    statusBreakdown,
+    cityColumns: ["Cidade", ...columns.slice(1)], cityWidths: widths, cityRows: toRows((r) => r.__city),
+    driverColumns: columns, driverWidths: widths, driverRows: toRows((r) => r.__driverName),
+    legendNote: "Linhas em vermelho: têm PNR(s) urgente(s) (prazo vencendo ou vencido).",
   };
 }
 
 // Decide qual relatório montar de acordo com a página/aba ativa no
 // momento do clique — nunca mistura tudo junto.
 function buildReportForActiveView() {
-  if (activePage === "BACKLOG") return buildBacklogOffendersReport();
-  if (activePage === "PNR") return buildPnrOffendersReport();
+  if (activePage === "BACKLOG") return buildBacklogFullReport();
+  if (activePage === "PNR") return buildPnrFullReport();
 
   // HOME ou CITY (Entregadores) — usa o mesmo conjunto de dados da
   // aba SLA/DS/Manifesto que estava ativa (a tabela de Entregadores é
   // sempre um detalhamento dessa mesma aba).
   const { sla, ds, manifest } = getFilteredRows();
-  if (currentView === "DS") return buildDeliveryOffendersReport(ds, "DS");
-  if (currentView === "MANIFESTO") return buildDeliveryOffendersReport(manifest, "MANIFESTO");
-  if (currentView === "SLA") return buildDeliveryOffendersReport(sla, "SLA");
+  if (currentView === "DS") return buildDeliveryFullReport(ds, "DS", "DS");
+  if (currentView === "MANIFESTO") return buildDeliveryFullReport(manifest, "MANIFESTO", "DS");
+  if (currentView === "SLA") return buildDeliveryFullReport(sla, "SLA", "SLA");
   // GERAL: combina SLA + DS num relatório só
-  return buildDeliveryOffendersReport([...sla, ...ds], "GERAL (SLA & DS)");
+  return buildDeliveryFullReport([...sla, ...ds], "GERAL (SLA & DS)", "SLA");
 }
 
 function exportPdfReport() {
   const report = buildReportForActiveView();
 
-  if (!report.cities.length) {
+  if (report.isEmpty) {
     toast(report.emptyMessage, "warn");
     return;
   }
 
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent-2").trim() || "#e00000";
   const accentRgb = (accent.match(/[\da-f]{2}/gi) || ["e0", "00", "00"]).map((h) => parseInt(h, 16));
+  const badRgb = [176, 22, 22];
+  const darkRgb = [20, 20, 20];
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -1777,6 +1804,7 @@ function exportPdfReport() {
   const pageHeight = pdf.internal.pageSize.getHeight();
   const marginX = 48;
   const marginBottom = 50;
+  const usableWidth = pageWidth - marginX * 2;
   let y = 0;
 
   const today = new Date();
@@ -1801,73 +1829,136 @@ function exportPdfReport() {
     y = 80;
   }
 
+  function drawSectionTitle(text) {
+    ensureSpace(30);
+    pdf.setFillColor(accentRgb[0], accentRgb[1], accentRgb[2]);
+    pdf.rect(marginX, y, 4, 16, "F");
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12.5);
+    pdf.setTextColor(darkRgb[0], darkRgb[1], darkRgb[2]);
+    pdf.text(text, marginX + 12, y + 12);
+    y += 28;
+  }
+
+  function drawTable(columns, widthsFractions, rows) {
+    if (!rows.length) return;
+    const colWidths = widthsFractions.map((f) => f * usableWidth);
+    const rowH = 16;
+
+    function drawHeaderRow() {
+      ensureSpace(rowH + 4);
+      pdf.setFillColor(accentRgb[0], accentRgb[1], accentRgb[2]);
+      pdf.rect(marginX, y - 12, usableWidth, rowH + 2, "F");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(255, 255, 255);
+      let x = marginX;
+      columns.forEach((label, i) => {
+        pdf.text(label, x + 5, y - 1);
+        x += colWidths[i];
+      });
+      y += rowH;
+    }
+
+    drawHeaderRow();
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9.5);
+    rows.forEach((row, idx) => {
+      if (y + rowH > pageHeight - marginBottom) {
+        pdf.addPage();
+        drawHeaderBar();
+        drawHeaderRow();
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9.5);
+      }
+      if (idx % 2 === 1) {
+        pdf.setFillColor(245, 245, 245);
+        pdf.rect(marginX, y - 12, usableWidth, rowH, "F");
+      }
+      if (row.bad) {
+        pdf.setTextColor(badRgb[0], badRgb[1], badRgb[2]);
+        pdf.setFont("helvetica", "bold");
+      } else {
+        pdf.setTextColor(darkRgb[0], darkRgb[1], darkRgb[2]);
+        pdf.setFont("helvetica", "normal");
+      }
+      let x = marginX;
+      row.cells.forEach((cell, i) => {
+        pdf.text(String(cell), x + 5, y - 1, { maxWidth: colWidths[i] - 8 });
+        x += colWidths[i];
+      });
+      y += rowH;
+    });
+    pdf.setFont("helvetica", "normal");
+    pdf.setTextColor(darkRgb[0], darkRgb[1], darkRgb[2]);
+    y += 18;
+  }
+
   drawHeaderBar();
 
-  report.cities.forEach((city) => {
-    ensureSpace(46);
-    pdf.setFillColor(accentRgb[0], accentRgb[1], accentRgb[2]);
-    pdf.rect(marginX, y, 4, 20, "F");
+  // ---- Resumo (KPIs) ----
+  drawSectionTitle("Resumo geral");
+  const cardW = usableWidth / report.summary.length;
+  ensureSpace(50);
+  const cardY = y;
+  report.summary.forEach((card, i) => {
+    const x = marginX + i * cardW;
+    pdf.setFillColor(248, 248, 248);
+    pdf.rect(x, cardY, cardW - 6, 44, "F");
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(13);
-    pdf.setTextColor(20, 20, 20);
-    pdf.text(city.name.toUpperCase(), marginX + 12, y + 15);
-    y += 32;
-
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(11);
-    pdf.text(report.sectionLabel, marginX, y);
-    y += 17;
-
+    pdf.setFontSize(14);
+    pdf.setTextColor(darkRgb[0], darkRgb[1], darkRgb[2]);
+    pdf.text(String(card.value), x + 8, cardY + 22);
     pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(11);
-    const topOffenders = city.offenders.slice(0, 10);
-    topOffenders.forEach((o) => {
-      ensureSpace(16);
-      const label = `${o.count} ${o.count === 1 ? report.unitSingular : report.unitPlural}`;
-      pdf.text(`•  ${o.name} – ${label}`, marginX + 10, y);
-      y += 15.5;
-    });
-    if (city.offenders.length > topOffenders.length) {
-      ensureSpace(16);
-      pdf.setFont("helvetica", "italic");
-      pdf.text(`+ ${city.offenders.length - topOffenders.length} outro(s) entregador(es)`, marginX + 10, y);
-      y += 15.5;
-    }
-
-    if (report.extraCityLine) {
-      const extra = report.extraCityLine(city);
-      if (extra) {
-        ensureSpace(16);
-        pdf.setFont("helvetica", "bolditalic");
-        pdf.text(extra, marginX + 10, y);
-        y += 15.5;
-      }
-    }
-
-    y += 8;
-    ensureSpace(32);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(11);
-    pdf.text(report.reasonSectionLabel, marginX, y);
-    y += 16;
-
-    pdf.setFont("helvetica", "normal");
-    const reasonText = city.reasons.length ? city.reasons.join(", ") + "." : report.noReasonText;
-    const wrapped = pdf.splitTextToSize(reasonText, pageWidth - marginX * 2 - 10);
-    wrapped.forEach((line) => {
-      ensureSpace(15);
-      pdf.text(line, marginX + 10, y);
-      y += 15;
-    });
-
-    y += 24;
+    pdf.setFontSize(8);
+    pdf.setTextColor(90, 90, 90);
+    const wrapped = pdf.splitTextToSize(card.label, cardW - 16);
+    pdf.text(wrapped, x + 8, cardY + 35);
   });
+  y = cardY + 60;
+
+  // ---- Distribuição por status ----
+  if (report.statusBreakdown && report.statusBreakdown.length) {
+    drawSectionTitle("Distribuição por status");
+    drawTable(
+      ["Status", "Quantidade"],
+      [0.7, 0.3],
+      report.statusBreakdown.map((s) => ({ cells: [s.label, String(s.count)], bad: false }))
+    );
+  }
+
+  // ---- Detalhamento por cidade ----
+  drawSectionTitle("Detalhamento por cidade");
+  if (report.cityRows.length) {
+    drawTable(report.cityColumns, report.cityWidths, report.cityRows);
+  } else {
+    ensureSpace(16);
+    pdf.setFont("helvetica", "italic");
+    pdf.setFontSize(10);
+    pdf.text("Nenhuma cidade identificada nos dados carregados.", marginX, y);
+    y += 24;
+  }
+
+  // ---- Detalhamento por entregador ----
+  drawSectionTitle("Detalhamento por entregador");
+  drawTable(report.driverColumns, report.driverWidths, report.driverRows);
+
+  // ---- Legenda ----
+  if (report.legendNote) {
+    ensureSpace(20);
+    pdf.setFont("helvetica", "italic");
+    pdf.setFontSize(9);
+    pdf.setTextColor(120, 120, 120);
+    pdf.text(report.legendNote, marginX, y);
+  }
 
   const stationLabel = stationSelect && stationSelect.value ? stationSelect.value.replace(/[^a-zA-Z0-9]+/g, "-") : "todos";
   const reportSlug = report.titleLine.split("—")[1]?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "geral";
   pdf.save(`relatorio-${reportSlug}-${stationLabel}-${new Date().toISOString().slice(0, 10)}.pdf`);
   toast("Relatório gerado com sucesso", "good");
 }
+
 
 function exportImage() {
   document.body.classList.add("export-mode");
