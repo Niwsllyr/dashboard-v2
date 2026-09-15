@@ -67,6 +67,7 @@
               <select id="perfilSpxSelect" class="station-badge" title="Perfil de login do SPX usado nas atualizações">
                   <option value="">Carregando perfis...</option>
               </select>
+              <span id="perfilAtivoLabel" class="etapas-label">👤 —</span>
               <button class="print print-ghost" id="btnFazerLogin" type="button" title="Abre o SPX pra fazer login no perfil selecionado (ou criar um novo)">🔑 Fazer Login</button>
               <button class="print print-ghost" id="btnSairLogin" type="button" title="Apaga a sessão salva do perfil selecionado — só use pra trocar de conta">🚪 Sair do Login</button>
           </div>
@@ -633,8 +634,48 @@ if (window.electronAPI) {
   // PERFIS DE LOGIN DO SPX (dá pra ter mais de um salvo)
   // ==========================================
 
+  // Caixinha própria de input — window.prompt() NÃO funciona dentro
+  // do Electron (sempre volta vazio), por isso usamos essa própria,
+  // do mesmo jeito que já é feito pra contato/cidade manual.
+  function askInputModalPerfil(title, placeholder) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'xpt-modal-overlay';
+      overlay.innerHTML = `
+        <div class="xpt-modal">
+          <div class="xpt-modal-title">${title}</div>
+          <input type="text" class="xpt-modal-input" placeholder="${placeholder || ''}">
+          <div class="xpt-modal-actions">
+            <button type="button" class="xpt-modal-cancel">Cancelar</button>
+            <button type="button" class="xpt-modal-ok">Salvar</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      const input = overlay.querySelector('.xpt-modal-input');
+      input.focus();
+
+      function fechar(valor) {
+        document.body.removeChild(overlay);
+        resolve(valor);
+      }
+
+      overlay.querySelector('.xpt-modal-cancel').onclick = () => fechar(null);
+      overlay.querySelector('.xpt-modal-ok').onclick = () => fechar(input.value);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') fechar(input.value);
+        if (e.key === 'Escape') fechar(null);
+      });
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) fechar(null);
+      });
+    });
+  }
+
   const NOVO_PERFIL_VALOR = '__novo__';
   const perfilSelect = document.getElementById('perfilSpxSelect');
+  const perfilAtivoLabel = document.getElementById('perfilAtivoLabel');
 
   function preencherPerfilSelect(perfis, ativo) {
     if (!perfilSelect) return;
@@ -644,6 +685,12 @@ if (window.electronAPI) {
       `<option value="${NOVO_PERFIL_VALOR}">➕ Nova conta...</option>`;
     if (ativo && lista.includes(ativo)) perfilSelect.value = ativo;
     else if (lista.length) perfilSelect.value = lista[0];
+
+    if (perfilAtivoLabel) {
+      perfilAtivoLabel.textContent = ativo && lista.includes(ativo)
+        ? `👤 Logado como: ${ativo}`
+        : '👤 Nenhum perfil logado ainda';
+    }
   }
 
   // Chamado pelo main.js sempre que a lista de perfis muda (depois
@@ -657,18 +704,22 @@ if (window.electronAPI) {
       preencherPerfilSelect(perfis, ativo);
     });
 
-    perfilSelect.addEventListener('change', () => {
+    perfilSelect.addEventListener('change', async () => {
       if (perfilSelect.value === NOVO_PERFIL_VALOR) {
         // Não seleciona de verdade essa opção — é só um atalho pra
-        // criar. Volta pro perfil que estava antes.
-        const nome = (prompt('Nome desse novo perfil/conta (ex: "Zé Doca", "Rio 03"):') || '').trim();
-        window.electronAPI.listarPerfis().then(({ perfis, ativo }) => {
-          preencherPerfilSelect(perfis, ativo);
-          if (nome) {
-            toast(`Abrindo o SPX pra logar no novo perfil "${nome}"...`, 'info');
-            window.electronAPI.fazerLogin(nome);
-          }
-        });
+        // criar. Volta pro perfil que estava antes assim que decide.
+        const nome = ((await askInputModalPerfil(
+          'Nome da nova conta/perfil',
+          'ex: Zé Doca, Rio 03...'
+        )) || '').trim();
+
+        const { perfis, ativo } = await window.electronAPI.listarPerfis();
+        preencherPerfilSelect(perfis, ativo);
+
+        if (nome) {
+          toast(`Abrindo o SPX pra logar no novo perfil "${nome}"...`, 'info');
+          window.electronAPI.fazerLogin(nome);
+        }
         return;
       }
       window.electronAPI.selecionarPerfil(perfilSelect.value);
