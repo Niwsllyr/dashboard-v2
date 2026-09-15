@@ -105,6 +105,16 @@
           <span id="cepStatus" class="cep-status"></span>
       </div>
 
+      <div class="control-row control-row-etapas" id="etapasSelector" style="display:none;">
+          <span class="etapas-label">🔄 Atualizar:</span>
+          <label class="etapa-chip"><input type="checkbox" id="etapaTodos" checked> Todos</label>
+          <label class="etapa-chip"><input type="checkbox" class="etapa-item" data-etapa="SLA" checked> SLA</label>
+          <label class="etapa-chip"><input type="checkbox" class="etapa-item" data-etapa="DS" checked> DS</label>
+          <label class="etapa-chip"><input type="checkbox" class="etapa-item" data-etapa="BACKLOG" checked> Backlog</label>
+          <label class="etapa-chip"><input type="checkbox" class="etapa-item" data-etapa="PNR" checked> PNR</label>
+          <label class="etapa-chip"><input type="checkbox" class="etapa-item" data-etapa="MANIFESTO" checked> Manifesto</label>
+      </div>
+
       <div class="control-divider"></div>
 
       <div class="control-row control-row-filters">
@@ -394,6 +404,33 @@
 </div>
 
 <style>
+  .control-row-etapas{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 8px 0;
+  }
+  .etapas-label{
+    font-size: 13px;
+    font-weight: 700;
+    color: #b5b5b5;
+  }
+  .etapa-chip{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #e5e5e5;
+    cursor: pointer;
+    user-select: none;
+  }
+  .etapa-chip input[type="checkbox"]{
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+    accent-color: var(--accent, #d92b2b);
+  }
   .xpt-login-feito{
     position: fixed;
     right: 18px;
@@ -534,6 +571,9 @@ if (window.electronAPI) {
   const barra = document.getElementById('electronActions');
   if (barra) barra.style.display = 'flex';
 
+  const etapasSelector = document.getElementById('etapasSelector');
+  if (etapasSelector) etapasSelector.style.display = 'flex';
+
   const btnImportar = document.getElementById('btnImportarBRs');
   if (btnImportar) {
     btnImportar.addEventListener('click', () => {
@@ -541,10 +581,44 @@ if (window.electronAPI) {
     });
   }
 
+  // ==========================================
+  // CHECKBOXES DE ETAPA (Todos / SLA / DS / Backlog / PNR / Manifesto)
+  // "Todos" marca/desmarca tudo de uma vez; desmarcar qualquer item
+  // individual desmarca o "Todos" automaticamente (deixou de ser
+  // "tudo"); se todos os itens ficarem marcados de novo (um por um),
+  // o "Todos" volta a marcar sozinho.
+  // ==========================================
+
+  const etapaTodos = document.getElementById('etapaTodos');
+  const etapaItens = Array.from(document.querySelectorAll('.etapa-item'));
+
+  function sincronizarTodos() {
+    if (!etapaTodos) return;
+    etapaTodos.checked = etapaItens.length > 0 && etapaItens.every((chk) => chk.checked);
+  }
+
+  if (etapaTodos) {
+    etapaTodos.addEventListener('change', () => {
+      etapaItens.forEach((chk) => { chk.checked = etapaTodos.checked; });
+    });
+  }
+
+  etapaItens.forEach((chk) => {
+    chk.addEventListener('change', () => {
+      if (!chk.checked && etapaTodos) etapaTodos.checked = false;
+      else sincronizarTodos();
+    });
+  });
+
   const btnAtualizar = document.getElementById('btnAtualizarDados');
   if (btnAtualizar) {
     btnAtualizar.addEventListener('click', () => {
-      window.electronAPI.atualizarDados();
+      const selecionadas = etapaItens.filter((chk) => chk.checked).map((chk) => chk.dataset.etapa);
+      if (selecionadas.length === 0) {
+        toast('Selecione pelo menos uma etapa pra atualizar (SLA, DS, Backlog, PNR ou Manifesto).', 'warn');
+        return;
+      }
+      window.electronAPI.atualizarDados(selecionadas);
     });
   }
 
