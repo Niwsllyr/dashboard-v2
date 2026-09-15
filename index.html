@@ -703,9 +703,11 @@ if (window.electronAPI) {
 
   // Chamado pelo main.js sempre que a lista de perfis muda (depois
   // de cadastrar, logar, sair, ou trocar de perfil)
-  window.xptAtualizarPerfis = function (perfis, ativo, comLogin) {
-    preencherPerfilSelect(perfis, ativo, comLogin);
-  };
+  if (window.electronAPI.onPerfisAtualizados) {
+    window.electronAPI.onPerfisAtualizados(({ perfis, ativo, comLogin }) => {
+      preencherPerfilSelect(perfis, ativo, comLogin);
+    });
+  }
 
   if (perfilSelect) {
     window.electronAPI.listarPerfis().then(({ perfis, ativo, comLogin }) => {
