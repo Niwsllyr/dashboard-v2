@@ -677,48 +677,64 @@ if (window.electronAPI) {
   const perfilSelect = document.getElementById('perfilSpxSelect');
   const perfilAtivoLabel = document.getElementById('perfilAtivoLabel');
 
-  function preencherPerfilSelect(perfis, ativo) {
+  function preencherPerfilSelect(perfis, ativo, comLogin) {
     if (!perfilSelect) return;
     const lista = perfis && perfis.length ? perfis : [];
+    const logados = comLogin || [];
     perfilSelect.innerHTML =
-      lista.map((nome) => `<option value="${nome}">${nome}</option>`).join('') +
-      `<option value="${NOVO_PERFIL_VALOR}">➕ Nova conta...</option>`;
+      lista.map((nome) => {
+        const marca = logados.includes(nome) ? '' : ' (sem login)';
+        return `<option value="${nome}">${nome}${marca}</option>`;
+      }).join('') +
+      `<option value="${NOVO_PERFIL_VALOR}">➕ Cadastrar novo perfil...</option>`;
     if (ativo && lista.includes(ativo)) perfilSelect.value = ativo;
     else if (lista.length) perfilSelect.value = lista[0];
 
     if (perfilAtivoLabel) {
-      perfilAtivoLabel.textContent = ativo && lista.includes(ativo)
-        ? `👤 Logado como: ${ativo}`
-        : '👤 Nenhum perfil logado ainda';
+      if (!ativo || !lista.includes(ativo)) {
+        perfilAtivoLabel.textContent = '👤 Nenhum perfil cadastrado ainda';
+      } else if (logados.includes(ativo)) {
+        perfilAtivoLabel.textContent = `👤 Logado como: ${ativo}`;
+      } else {
+        perfilAtivoLabel.textContent = `👤 ${ativo} (cadastrado, falta fazer login)`;
+      }
     }
   }
 
   // Chamado pelo main.js sempre que a lista de perfis muda (depois
-  // de logar, sair, ou trocar de perfil)
-  window.xptAtualizarPerfis = function (perfis, ativo) {
-    preencherPerfilSelect(perfis, ativo);
+  // de cadastrar, logar, sair, ou trocar de perfil)
+  window.xptAtualizarPerfis = function (perfis, ativo, comLogin) {
+    preencherPerfilSelect(perfis, ativo, comLogin);
   };
 
   if (perfilSelect) {
-    window.electronAPI.listarPerfis().then(({ perfis, ativo }) => {
-      preencherPerfilSelect(perfis, ativo);
+    window.electronAPI.listarPerfis().then(({ perfis, ativo, comLogin }) => {
+      preencherPerfilSelect(perfis, ativo, comLogin);
     });
 
     perfilSelect.addEventListener('change', async () => {
       if (perfilSelect.value === NOVO_PERFIL_VALOR) {
-        // Não seleciona de verdade essa opção — é só um atalho pra
-        // criar. Volta pro perfil que estava antes assim que decide.
+        // Não seleciona de verdade essa opção — é só um atalho. Só
+        // CADASTRA o nome aqui — não faz login sozinho; pra logar,
+        // seleciona o perfil recém-criado e clica em "Fazer Login".
         const nome = ((await askInputModalPerfil(
-          'Nome da nova conta/perfil',
+          'Nome do novo perfil (você faz o login depois, quando quiser)',
           'ex: Zé Doca, Rio 03...'
         )) || '').trim();
 
-        const { perfis, ativo } = await window.electronAPI.listarPerfis();
-        preencherPerfilSelect(perfis, ativo);
-
         if (nome) {
-          toast(`Abrindo o SPX pra logar no novo perfil "${nome}"...`, 'info');
-          window.electronAPI.fazerLogin(nome);
+          const resultado = await window.electronAPI.adicionarPerfil(nome);
+          if (resultado && resultado.ok) {
+            preencherPerfilSelect(resultado.perfis, nome, []);
+            perfilSelect.value = nome;
+            window.electronAPI.selecionarPerfil(nome);
+            toast(`Perfil "${nome}" cadastrado. Clique em "Fazer Login" quando quiser entrar nele.`, 'good');
+          } else {
+            toast('Não consegui cadastrar esse perfil.', 'bad');
+          }
+        } else {
+          const { perfis, ativo, comLogin } = await window.electronAPI.listarPerfis();
+          preencherPerfilSelect(perfis, ativo, comLogin);
         }
         return;
       }
