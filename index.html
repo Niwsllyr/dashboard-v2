@@ -64,10 +64,11 @@
               <button class="print print-ghost" id="btnImportarBRs" type="button">📥 Importar BRs (SLA)</button>
               <button class="print" id="btnAtualizarDados" type="button">🔄 Atualizar Dados</button>
               <button class="print print-ghost" id="btnAbrirLog" type="button" title="Abrir o log detalhado da última atualização">📄 Ver Log</button>
-              <select id="perfilSpxSelect" class="station-badge" title="Perfil de login do SPX usado nas atualizações">
+              <select id="perfilSpxSelect" class="station-badge" style="min-width:150px;" title="Perfil de login do SPX usado nas atualizações">
                   <option value="">Carregando perfis...</option>
               </select>
               <span id="perfilAtivoLabel" class="etapas-label">👤 —</span>
+              <button class="print print-ghost" id="btnAdicionarPerfil" type="button" title="Cadastra um novo perfil (você faz o login depois, quando quiser)">➕ Adicionar Perfil</button>
               <button class="print print-ghost" id="btnFazerLogin" type="button" title="Abre o SPX pra fazer login no perfil selecionado (ou criar um novo)">🔑 Fazer Login</button>
               <button class="print print-ghost" id="btnSairLogin" type="button" title="Apaga a sessão salva do perfil selecionado — só use pra trocar de conta">🚪 Sair do Login</button>
           </div>
@@ -432,6 +433,9 @@
     cursor: pointer;
     accent-color: var(--accent, #d92b2b);
   }
+  #perfilSpxSelect{
+    flex-shrink: 0;
+  }
   .xpt-login-feito{
     position: fixed;
     right: 18px;
@@ -709,6 +713,33 @@ if (window.electronAPI) {
     });
   }
 
+  // Cadastra um perfil novo (só o nome — o login é uma ação à parte,
+  // feita depois clicando em "Fazer Login"). Usada tanto pelo botão
+  // "➕ Adicionar Perfil" quanto pelo atalho dentro do dropdown.
+  async function cadastrarNovoPerfil() {
+    const nome = ((await askInputModalPerfil(
+      'Nome do novo perfil (você faz o login depois, quando quiser)',
+      'ex: Zé Doca, Rio 03...'
+    )) || '').trim();
+
+    if (!nome) return;
+
+    const resultado = await window.electronAPI.adicionarPerfil(nome);
+    if (resultado && resultado.ok) {
+      preencherPerfilSelect(resultado.perfis, nome, []);
+      if (perfilSelect) perfilSelect.value = nome;
+      window.electronAPI.selecionarPerfil(nome);
+      toast(`Perfil "${nome}" cadastrado. Clique em "Fazer Login" quando quiser entrar nele.`, 'good');
+    } else {
+      toast('Não consegui cadastrar esse perfil.', 'bad');
+    }
+  }
+
+  const btnAdicionarPerfil = document.getElementById('btnAdicionarPerfil');
+  if (btnAdicionarPerfil) {
+    btnAdicionarPerfil.addEventListener('click', cadastrarNovoPerfil);
+  }
+
   if (perfilSelect) {
     window.electronAPI.listarPerfis().then(({ perfis, ativo, comLogin }) => {
       preencherPerfilSelect(perfis, ativo, comLogin);
@@ -716,28 +747,11 @@ if (window.electronAPI) {
 
     perfilSelect.addEventListener('change', async () => {
       if (perfilSelect.value === NOVO_PERFIL_VALOR) {
-        // Não seleciona de verdade essa opção — é só um atalho. Só
-        // CADASTRA o nome aqui — não faz login sozinho; pra logar,
-        // seleciona o perfil recém-criado e clica em "Fazer Login".
-        const nome = ((await askInputModalPerfil(
-          'Nome do novo perfil (você faz o login depois, quando quiser)',
-          'ex: Zé Doca, Rio 03...'
-        )) || '').trim();
-
-        if (nome) {
-          const resultado = await window.electronAPI.adicionarPerfil(nome);
-          if (resultado && resultado.ok) {
-            preencherPerfilSelect(resultado.perfis, nome, []);
-            perfilSelect.value = nome;
-            window.electronAPI.selecionarPerfil(nome);
-            toast(`Perfil "${nome}" cadastrado. Clique em "Fazer Login" quando quiser entrar nele.`, 'good');
-          } else {
-            toast('Não consegui cadastrar esse perfil.', 'bad');
-          }
-        } else {
-          const { perfis, ativo, comLogin } = await window.electronAPI.listarPerfis();
-          preencherPerfilSelect(perfis, ativo, comLogin);
-        }
+        // Não seleciona de verdade essa opção — é só um atalho pro
+        // mesmo cadastro do botão "➕ Adicionar Perfil".
+        await cadastrarNovoPerfil();
+        const { perfis, ativo, comLogin } = await window.electronAPI.listarPerfis();
+        preencherPerfilSelect(perfis, ativo, comLogin);
         return;
       }
       window.electronAPI.selecionarPerfil(perfilSelect.value);
