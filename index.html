@@ -37,11 +37,26 @@
 <div class="dashboard" id="dashboard">
 
   <header class="topbar">
-      <div class="brand">
-          <img src="logo.png" class="logo" alt="Logo">
-          <div class="title-group">
-              <h1>Dashboard Operacional</h1>
-              <span><span class="live-dot"></span>Performance Logística · SLA &amp; DS</span>
+      <div class="topbar-top-row">
+          <div class="brand">
+              <img src="logo.png" class="logo" alt="Logo">
+              <div class="title-group">
+                  <h1>Dashboard Operacional</h1>
+                  <span><span class="live-dot"></span>Performance Logística · SLA &amp; DS</span>
+              </div>
+          </div>
+
+          <div class="topbar-corner">
+              <span id="licenseBadge" class="license-badge">🔑 —</span>
+              <div class="actions-group" id="electronProfileActions" style="display:none;">
+                  <select id="perfilSpxSelect" class="station-badge" style="min-width:150px;" title="Perfil de login do SPX usado nas atualizações">
+                      <option value="">Carregando perfis...</option>
+                  </select>
+                  <span id="perfilAtivoLabel" class="etapas-label">👤 —</span>
+                  <button class="print print-ghost" id="btnAdicionarPerfil" type="button" title="Cadastra um novo perfil (você faz o login depois, quando quiser)">➕ Adicionar Perfil</button>
+                  <button class="print print-ghost" id="btnFazerLogin" type="button" title="Abre o SPX pra fazer login no perfil selecionado (ou criar um novo)">🔑 Fazer Login</button>
+                  <button class="print print-ghost" id="btnSairLogin" type="button" title="Apaga a sessão salva do perfil selecionado — só use pra trocar de conta">🚪 Sair do Login</button>
+              </div>
           </div>
       </div>
 
@@ -59,23 +74,9 @@
               <select id="paletteSelect" class="palette-select" title="Paleta de cores"></select>
               <button id="themeToggle" class="theme-toggle" type="button">🌙 Escuro</button>
               <button id="btnTvMode" class="theme-toggle" type="button">📺 Modo TV</button>
-          </div>
-          <div class="actions-group" id="electronProfileActions" style="display:none;">
-              <select id="perfilSpxSelect" class="station-badge" style="min-width:150px;" title="Perfil de login do SPX usado nas atualizações">
-                  <option value="">Carregando perfis...</option>
-              </select>
-              <span id="perfilAtivoLabel" class="etapas-label">👤 —</span>
-              <button class="print print-ghost" id="btnAdicionarPerfil" type="button" title="Cadastra um novo perfil (você faz o login depois, quando quiser)">➕ Adicionar Perfil</button>
-              <button class="print print-ghost" id="btnFazerLogin" type="button" title="Abre o SPX pra fazer login no perfil selecionado (ou criar um novo)">🔑 Fazer Login</button>
-              <button class="print print-ghost" id="btnSairLogin" type="button" title="Apaga a sessão salva do perfil selecionado — só use pra trocar de conta">🚪 Sair do Login</button>
-          </div>
-          <div class="actions-group" id="electronActions" style="display:none;">
-              <button class="print print-ghost" id="btnImportarBRs" type="button">📥 Importar BRs (SLA)</button>
-              <button class="print" id="btnAtualizarDados" type="button">🔄 Atualizar Dados</button>
-              <button class="print print-ghost" id="btnAbrirLog" type="button" title="Abrir o log detalhado da última atualização">📄 Ver Log</button>
-          </div>
-          <div class="actions-group">
-              <span id="licenseBadge" class="license-badge">🔑 —</span>
+              <span id="electronActions" style="display:none;">
+                  <button class="print print-ghost" id="btnAbrirLog" type="button" title="Abrir o log detalhado da última atualização">📄 Ver Log</button>
+              </span>
               <button class="print" id="btnExportPdf" type="button">📄 Relatório PDF</button>
               <button class="print" id="btnExportTxt" type="button">📝 Relatório TXT</button>
               <button class="print print-ghost" onclick="exportImage()" type="button">📋 Copiar Print</button>
@@ -106,6 +107,9 @@
               <input type="file" id="manifestInput" accept=".csv" multiple>
           </div>
           <select id="stationSelect" class="station-badge"></select>
+          <span id="electronImportBtn" style="display:none;">
+              <button class="print print-ghost" id="btnImportarBRs" type="button">📥 Importar BRs (SLA)</button>
+          </span>
           <span id="cepStatus" class="cep-status"></span>
       </div>
 
@@ -117,6 +121,7 @@
           <label class="etapa-chip"><input type="checkbox" class="etapa-item" data-etapa="BACKLOG" checked> Backlog</label>
           <label class="etapa-chip"><input type="checkbox" class="etapa-item" data-etapa="PNR" checked> PNR</label>
           <label class="etapa-chip"><input type="checkbox" class="etapa-item" data-etapa="MANIFESTO" checked> Manifesto</label>
+          <button class="print" id="btnAtualizarDados" type="button">🔄 Atualizar Dados</button>
       </div>
 
       <div class="control-divider"></div>
@@ -484,10 +489,28 @@
   #perfilSpxSelect{
     flex-shrink: 0;
   }
+  .topbar-top-row{
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .topbar-corner{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  #electronImportBtn{
+    display: inline-flex;
+  }
   /* Modo TV é só pra visualização — some com tudo que é controle/ação,
      não só o que já era escondido antes */
   body.tv-mode #electronActions,
   body.tv-mode #electronProfileActions,
+  body.tv-mode #electronImportBtn,
   body.tv-mode .control-row-etapas,
   body.tv-mode #etapasSelector {
     display: none !important;
@@ -715,7 +738,10 @@
 if (window.electronAPI) {
 
   const barra = document.getElementById('electronActions');
-  if (barra) barra.style.display = 'flex';
+  if (barra) barra.style.display = 'inline-flex';
+
+  const barraImportar = document.getElementById('electronImportBtn');
+  if (barraImportar) barraImportar.style.display = 'inline-flex';
 
   const barraPerfil = document.getElementById('electronProfileActions');
   if (barraPerfil) barraPerfil.style.display = 'flex';
