@@ -1332,6 +1332,8 @@ function renderView(slaFiltered, dsFiltered, manifestFiltered = []) {
       { status: statusSelect.value, rawData: slaFiltered, cepToCity, goal: GOAL }
     );
     renderHourlyDeliveryChart(slaFiltered);
+    lastDriverActivityRows = slaFiltered;
+    renderDriverActivityTable(slaFiltered);
     renderDriverTable(slaMetrics.driverSLA, true);
   } else {
     const metrics =
@@ -1370,6 +1372,8 @@ function renderView(slaFiltered, dsFiltered, manifestFiltered = []) {
       { status: statusSelect.value, rawData, cepToCity, goal: GOAL }
     );
     renderHourlyDeliveryChart(rawData);
+    lastDriverActivityRows = rawData;
+    renderDriverActivityTable(rawData);
     renderDriverTable(metrics.driverSLA, false);
   }
 }
@@ -2712,3 +2716,148 @@ window.voltarDashboard = function () {
 // Estado inicial
 // ------------------------------------------------------------
 syncEmptyState();
+
+// ------------------------------------------------------------
+// Tabela "Atuação dos Entregadores" — ao lado da curva de hora a
+// hora. Pra cada entregador: horário que subiu rota (Pick Up mais
+// cedo do dia), horário da última entrega (Delivered mais recente),
+// tempo parado desde então, status atual, e cidade.
+// ------------------------------------------------------------
+
+function parseSpxDateTimeLocal(value) {
+  if (!value) return null;
+  const str = value.toString().trim();
+  const m = str.match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [, dd, mm, yyyy, hh, min] = m;
+  return new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min));
+}
+
+function formatHHMM(date) {
+  if (!date) return "-";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatDuration(ms) {
+  if (ms == null || ms < 0) return "-";
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0) return `${h}h ${m}min`;
+  return `${m}min`;
+}
+
+function buildDriverActivityRows(rows) {
+  const byDriver = {};
+  (rows || []).forEach((row) => {
+    const name = (row["Driver Name"] || "").toString().trim();
+    if (!name) return;
+    if (!byDriver[name]) {
+      byDriver[name] = {
+        name,
+        pickup: null,
+        lastDelivered: null,
+        hasDelivering: false,
+        hasDelivered: false,
+        city: null,
+      };
+    }
+    const entry = byDriver[name];
+
+    const pickup = parseSpxDateTimeLocal(row["Pick Up Time"]);
+    if (pickup && (!entry.pickup || pickup < entry.pickup)) entry.pickup = pickup;
+
+    const delivered = parseSpxDateTimeLocal(row["Delivered Time"]);
+    if (delivered && (!entry.lastDelivered || delivered > entry.lastDelivered)) entry.lastDelivered = delivered;
+
+    const status = (row["Status"] || "").toString().trim();
+    if (status === "Delivering") entry.hasDelivering = true;
+    if (status === "Delivered") entry.hasDelivered = true;
+
+    if (!entry.city) {
+      const city = cepToCity[row["Postal Code"]];
+      if (city) entry.city = city;
+    }
+  });
+
+  const now = new Date();
+
+  return Object.values(byDriver)
+    .map((entry) => {
+      let status = "Sem atividade";
+      if (entry.hasDelivering) status = "Em rota";
+      else if (entry.hasDelivered) status = "Finalizado";
+
+      const tempoParadoMs = entry.lastDelivered ? now - entry.lastDelivered : null;
+
+      return {
+        name: entry.name,
+        city: entry.city || "-",
+        status,
+        pickupLabel: formatHHMM(entry.pickup),
+        lastDeliveredLabel: formatHHMM(entry.lastDelivered),
+        tempoParadoMs,
+        tempoParadoLabel: entry.lastDelivered ? formatDuration(tempoParadoMs) : "-",
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
+function renderDriverActivityTable(rows) {
+  const tbody = document.getElementById("driverActivityTableBody");
+  if (!tbody) return;
+
+  const allRows = buildDriverActivityRows(rows);
+
+  const cityFilterEl = document.getElementById("driverActivityCityFilter");
+  const statusFilterEl = document.getElementById("driverActivityStatusFilter");
+
+  if (cityFilterEl) {
+    const cities = [...new Set(allRows.map((r) => r.city).filter((c) => c && c !== "-"))].sort((a, b) =>
+      a.localeCompare(b, "pt-BR")
+    );
+    populateSelectPreserve(cityFilterEl, cities, '<option value="">Todas as Cidades</option>');
+  }
+
+  const cityValue = cityFilterEl ? cityFilterEl.value : "";
+  const statusValue = statusFilterEl ? statusFilterEl.value : "";
+
+  let filtered = allRows;
+  if (cityValue) filtered = filtered.filter((r) => r.city === cityValue);
+  if (statusValue) filtered = filtered.filter((r) => r.status === statusValue);
+
+  if (!filtered.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="6" style="text-align:center; color:var(--text-dim,#999); padding:16px;">Sem dados de entregadores</td></tr>';
+    return;
+  }
+
+  // Mais de 2h sem entregar depois de já ter começado a rota — destaca
+  const LIMIAR_ALERTA_MS = 2 * 60 * 60 * 1000;
+
+  tbody.innerHTML = filtered
+    .map((r) => {
+      const statusClass =
+        r.status === "Em rota" ? "em-rota" : r.status === "Finalizado" ? "finalizado" : "sem-atividade";
+      const tempoClass = r.tempoParadoMs != null && r.tempoParadoMs > LIMIAR_ALERTA_MS ? "driver-activity-stopped-alert" : "";
+      return `<tr>
+        <td>${r.name}</td>
+        <td>${r.city}</td>
+        <td><span class="driver-activity-status ${statusClass}">${r.status}</span></td>
+        <td>${r.pickupLabel}</td>
+        <td>${r.lastDeliveredLabel}</td>
+        <td class="${tempoClass}">${r.tempoParadoLabel}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
+const driverActivityCityFilter = document.getElementById("driverActivityCityFilter");
+const driverActivityStatusFilter = document.getElementById("driverActivityStatusFilter");
+let lastDriverActivityRows = [];
+if (driverActivityCityFilter) {
+  driverActivityCityFilter.addEventListener("change", () => renderDriverActivityTable(lastDriverActivityRows));
+}
+if (driverActivityStatusFilter) {
+  driverActivityStatusFilter.addEventListener("change", () => renderDriverActivityTable(lastDriverActivityRows));
+}
