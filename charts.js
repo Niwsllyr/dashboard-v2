@@ -317,13 +317,21 @@ function renderBacklogCharts(rows) {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 500, easing: "easeOutQuart" },
+        onClick: (evt, elements) => {
+          if (elements.length > 0 && labels[elements[0].index] !== "Sem dados") {
+            window.handleBacklogHandlerClick && window.handleBacklogHandlerClick(labels[elements[0].index]);
+          }
+        },
+        onHover: (evt, elements) => {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
         scales: {
           x: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor } },
           y: { grid: { display: false }, ticks: { color: tickColor } },
         },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: (item) => `${item.raw} pacote(s) parado(s)` } },
+          tooltip: { callbacks: { label: (item) => `${item.raw} pacote(s) parado(s) — clique pra filtrar` } },
         },
       },
     });
@@ -380,13 +388,21 @@ function renderPnrCharts(rows) {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 500, easing: "easeOutQuart" },
+        onClick: (evt, elements) => {
+          if (elements.length > 0) {
+            window.handlePnrDeadlineClick && window.handlePnrDeadlineClick(elements[0].index);
+          }
+        },
+        onHover: (evt, elements) => {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
         scales: {
           y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor } },
           x: { grid: { display: false }, ticks: { color: tickColor } },
         },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: (item) => `${item.raw} PNR` } },
+          tooltip: { callbacks: { label: (item) => `${item.raw} PNR — clique pra filtrar` } },
         },
       },
     });
@@ -420,13 +436,21 @@ function renderPnrCharts(rows) {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 500, easing: "easeOutQuart" },
+        onClick: (evt, elements) => {
+          if (elements.length > 0 && labels[elements[0].index] !== "Sem dados") {
+            window.handlePnrDriverClick && window.handlePnrDriverClick(labels[elements[0].index]);
+          }
+        },
+        onHover: (evt, elements) => {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
         scales: {
           x: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor } },
           y: { grid: { display: false }, ticks: { color: tickColor } },
         },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: (item) => `R$ ${item.raw.toFixed(2).replace(".", ",")}` } },
+          tooltip: { callbacks: { label: (item) => `R$ ${item.raw.toFixed(2).replace(".", ",")} — clique pra filtrar` } },
         },
       },
     });

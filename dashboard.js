@@ -68,6 +68,10 @@ let backlogRows = [];
 // número usado por agingRank() (0=sem atraso, 1=1-3d, 2=3-6d, 3=+6d)
 let backlogAgingFilter = null;
 const BACKLOG_AGING_LABELS = ["Sem atraso", "1 a 3 dias", "3 a 6 dias", "Mais de 6 dias"];
+// Mesma ideia pro PNR: filtro de urgência ativado clicando no
+// gráfico de prazo (0=tranquilo, 1=atenção, 2=urgente, 3=vencido)
+let pnrUrgencyFilter = null;
+const PNR_URGENCY_LABELS = ["Tranquilo (+3 dias)", "Atenção (1 a 3 dias)", "Urgente (menos de 1 dia)", "Vencido"];
 let pnrRows = [];
 let manifestRows = [];
 let cepToCity = {};
@@ -658,6 +662,14 @@ if (btnLimparFiltroAging) {
     toast("Filtro de dias removido", "info");
   });
 }
+const btnLimparFiltroPnrUrgencia = document.getElementById("btnLimparFiltroPnrUrgencia");
+if (btnLimparFiltroPnrUrgencia) {
+  btnLimparFiltroPnrUrgencia.addEventListener("click", () => {
+    pnrUrgencyFilter = null;
+    renderPnrView();
+    toast("Filtro de urgência removido", "info");
+  });
+}
 
 // ------------------------------------------------------------
 // PNR (multas/penalidades) — prazo de SLA e valor em risco
@@ -993,6 +1005,20 @@ function renderPnrView() {
   const driverValue = pnrDriverFilter ? pnrDriverFilter.value : "";
   if (statusValue) filtered = filtered.filter((r) => r.__status === statusValue);
   if (driverValue) filtered = filtered.filter((r) => r.__driverName === driverValue);
+  if (pnrUrgencyFilter !== null) {
+    filtered = filtered.filter((r) => pnrUrgencyRank(r.__diffDays) === pnrUrgencyFilter);
+  }
+
+  const pnrUrgencyFilterBadge = document.getElementById("pnrUrgencyFilterBadge");
+  if (pnrUrgencyFilterBadge) {
+    if (pnrUrgencyFilter !== null) {
+      pnrUrgencyFilterBadge.style.display = "inline-flex";
+      pnrUrgencyFilterBadge.querySelector(".pnr-urgency-filter-text").textContent =
+        `Filtrando: ${PNR_URGENCY_LABELS[pnrUrgencyFilter]}`;
+    } else {
+      pnrUrgencyFilterBadge.style.display = "none";
+    }
+  }
 
   const term = (pnrSearch && pnrSearch.value ? pnrSearch.value : "").trim().toLowerCase();
   if (term) {
@@ -2507,6 +2533,39 @@ window.handleBacklogAgingClick = function (rank) {
   } else {
     toast("Filtro de dias removido", "info");
   }
+};
+
+// Clique numa barra do gráfico "Backlog por Entregador Atual" —
+// filtra a tabela pra só esse entregador (usa o mesmo dropdown de
+// sempre). Clicar de novo no mesmo nome tira o filtro.
+window.handleBacklogHandlerClick = function (driverName) {
+  if (!backlogDriverFilter) return;
+  const jaEstavaFiltrado = backlogDriverFilter.value === driverName;
+  backlogDriverFilter.value = jaEstavaFiltrado ? "" : driverName;
+  renderBacklogView();
+  toast(jaEstavaFiltrado ? "Filtro de entregador removido" : `Filtrando Backlog: ${driverName}`, jaEstavaFiltrado ? "info" : "good");
+};
+
+// Clique numa barra do gráfico de prazo do PNR — filtra a tabela pra
+// só essa faixa de urgência.
+window.handlePnrDeadlineClick = function (rank) {
+  pnrUrgencyFilter = pnrUrgencyFilter === rank ? null : rank;
+  renderPnrView();
+  if (pnrUrgencyFilter !== null) {
+    toast(`Filtrando PNR: ${PNR_URGENCY_LABELS[rank]}`, "good");
+  } else {
+    toast("Filtro de urgência removido", "info");
+  }
+};
+
+// Clique numa barra do gráfico "Valor em Risco por Entregador" do
+// PNR — filtra a tabela pra só esse entregador.
+window.handlePnrDriverClick = function (driverName) {
+  if (!pnrDriverFilter) return;
+  const jaEstavaFiltrado = pnrDriverFilter.value === driverName;
+  pnrDriverFilter.value = jaEstavaFiltrado ? "" : driverName;
+  renderPnrView();
+  toast(jaEstavaFiltrado ? "Filtro de entregador removido" : `Filtrando PNR: ${driverName}`, jaEstavaFiltrado ? "info" : "good");
 };
 
 window.handleStatusClick = function (status) {
