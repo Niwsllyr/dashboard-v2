@@ -394,6 +394,8 @@ function renderNotifyCell(stat) {
   const phone = normalizePhone(findDriverPhone(stat.name));
 
   if (!phone) {
+    const message = buildWhatsAppMessage(stat);
+    cell.appendChild(renderCopyReportButton(message, stat.name, "SLA/DS"));
     cell.appendChild(renderAddContactLink(stat.name, () => refresh()));
     return cell;
   }
@@ -557,13 +559,18 @@ function renderBacklogView() {
   if (btnBacklogDriverNotify) {
     if (driverValue) {
       btnBacklogDriverNotify.style.display = "inline-flex";
-      btnBacklogDriverNotify.onclick = () => {
+      btnBacklogDriverNotify.onclick = async () => {
+        const message = buildBacklogDriverMessage(driverValue, rows);
         const phone = normalizePhone(findDriverPhone(driverValue));
         if (!phone) {
-          toast(`${firstName(driverValue)} ainda não tem telefone cadastrado`, "warn");
+          const ok = await copyTextToClipboard(message);
+          if (ok) {
+            toast(`${firstName(driverValue)} sem telefone — relatório de Backlog copiado, cole pra enviar manualmente`, "good");
+          } else {
+            toast("Não foi possível copiar automaticamente", "bad");
+          }
           return;
         }
-        const message = buildBacklogDriverMessage(driverValue, rows);
         const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
         window.open(url, "_blank");
         toast(`Mensagem de backlog preparada para ${firstName(driverValue)}`, "good");
@@ -776,6 +783,29 @@ function findDriverPhone(name) {
   return found ? driverContacts[found] : null;
 }
 
+// Quando o entregador não tem telefone cadastrado, esse botão copia
+// pra área de transferência um relatório em texto (BR, nome do
+// entregador, e o resto das informações daquela análise) — pra
+// poder colar e mandar manualmente por fora, já que não dá pra abrir
+// o WhatsApp direto sem número.
+function renderCopyReportButton(message, driverName, kind) {
+  const button = document.createElement("button");
+  button.className = "btn-notify btn-copy-report";
+  button.type = "button";
+  button.innerText = "📋 Copiar relatório";
+  button.title = `${driverName} não tem telefone cadastrado — copia um relatório de ${kind} pra enviar manualmente`;
+  button.onclick = async (event) => {
+    event.stopPropagation();
+    const ok = await copyTextToClipboard(message);
+    if (ok) {
+      toast(`Relatório de ${kind} copiado — cole pra enviar manualmente pra ${firstName(driverName)}`, "good");
+    } else {
+      toast("Não foi possível copiar automaticamente", "bad");
+    }
+  };
+  return button;
+}
+
 function renderAddContactLink(driverName, onSaved) {
   const wrap = document.createElement("span");
   wrap.className = "no-contact add-contact-link";
@@ -881,6 +911,8 @@ function renderPnrNotifyCell(pnr) {
   const cell = document.createElement("td");
   const phone = normalizePhone(findDriverPhone(pnr.__driverName));
   if (!phone) {
+    const message = buildPnrMessage(pnr);
+    cell.appendChild(renderCopyReportButton(message, pnr.__driverName, "PNR"));
     cell.appendChild(renderAddContactLink(pnr.__driverName, () => renderPnrView()));
     return cell;
   }
