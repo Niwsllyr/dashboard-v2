@@ -522,6 +522,74 @@
   body.tv-mode #etapasSelector {
     display: none !important;
   }
+  /* Modo TV: tudo precisa caber na tela sem rolar. Trava a altura
+     total em 100vh e faz cada bloco (KPIs, gráficos) dividir o
+     espaço que sobra proporcionalmente, em vez de cada um ter uma
+     altura fixa somada (que é o que causava o corte). */
+  body.tv-mode {
+    overflow: hidden;
+    height: 100vh;
+  }
+  body.tv-mode .dashboard {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  body.tv-mode .topbar {
+    flex: 0 0 auto;
+    padding-top: 8px !important;
+    padding-bottom: 4px !important;
+  }
+  body.tv-mode .control-bar {
+    flex: 0 0 auto;
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+  }
+  body.tv-mode #homePage.main-grid,
+  body.tv-mode .table-page {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  body.tv-mode .kpi-grid {
+    flex: 0 0 auto;
+    margin-bottom: 8px !important;
+  }
+  body.tv-mode .kpi {
+    padding: 8px 12px !important;
+  }
+  body.tv-mode .kpi p {
+    font-size: 22px !important;
+  }
+  body.tv-mode .chart-grid {
+    flex: 1 1 0;
+    min-height: 0;
+    margin-bottom: 8px !important;
+  }
+  body.tv-mode .chart-grid .card {
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 10px !important;
+  }
+  body.tv-mode .chart-grid canvas {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 100% !important;
+  }
+  body.tv-mode .driver-activity-card {
+    height: 100%;
+    min-height: 0;
+  }
+  body.tv-mode .driver-activity-table-wrap {
+    flex: 1 1 auto;
+    max-height: none !important;
+    min-height: 0;
+  }
   .driver-activity-card{
     display: flex;
     flex-direction: column;
