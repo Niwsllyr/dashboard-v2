@@ -2759,6 +2759,8 @@ function buildDriverActivityRows(rows) {
         lastDelivered: null,
         hasDelivering: false,
         hasDelivered: false,
+        deliveredCount: 0,
+        pendingCount: 0,
         city: null,
       };
     }
@@ -2771,8 +2773,14 @@ function buildDriverActivityRows(rows) {
     if (delivered && (!entry.lastDelivered || delivered > entry.lastDelivered)) entry.lastDelivered = delivered;
 
     const status = (row["Status"] || "").toString().trim();
-    if (status === "Delivering") entry.hasDelivering = true;
-    if (status === "Delivered") entry.hasDelivered = true;
+    if (status === "Delivering") {
+      entry.hasDelivering = true;
+      entry.pendingCount++;
+    }
+    if (status === "Delivered") {
+      entry.hasDelivered = true;
+      entry.deliveredCount++;
+    }
 
     if (!entry.city) {
       const city = cepToCity[row["Postal Code"]];
@@ -2790,6 +2798,16 @@ function buildDriverActivityRows(rows) {
 
       const tempoParadoMs = entry.lastDelivered ? now - entry.lastDelivered : null;
 
+      const total = entry.deliveredCount + entry.pendingCount;
+      const performance = total > 0 ? (entry.deliveredCount / total) * 100 : null;
+
+      let nivel = "leve";
+      if (performance !== null) {
+        if (performance < 50) nivel = "forte";
+        else if (performance < 90) nivel = "moderado";
+        else nivel = "leve";
+      }
+
       return {
         name: entry.name,
         city: entry.city || "-",
@@ -2798,9 +2816,76 @@ function buildDriverActivityRows(rows) {
         lastDeliveredLabel: formatHHMM(entry.lastDelivered),
         tempoParadoMs,
         tempoParadoLabel: entry.lastDelivered ? formatDuration(tempoParadoMs) : "-",
+        deliveredCount: entry.deliveredCount,
+        pendingCount: entry.pendingCount,
+        total,
+        performance,
+        nivel,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
+// Monta a mensagem pronta de alerta de desempenho — o tom muda
+// conforme a performance do entregador: abaixo de 50% é cobrança
+// forte, entre 50-89% é uma cobrança mais leve, e 90%+ (quase
+// terminando) é só um empurrãozinho pra fechar 100%.
+function buildDriverAlertMessage(row) {
+  let corpo;
+
+  if (row.performance === null) {
+    corpo =
+      "Ainda não temos nenhuma entrega registrada sua hoje. Por favor, inicie sua rota e mantenha as entregas em dia.";
+  } else if (row.nivel === "forte") {
+    corpo =
+      `🔴 ATENÇÃO — sua performance está em ${row.performance.toFixed(0)}%, MUITO abaixo do esperado.\n` +
+      `Você ainda tem ${row.pendingCount} pacote(s) pendente(s) de ${row.total}.\n` +
+      `Por favor, priorize as entregas restantes com URGÊNCIA.`;
+  } else if (row.nivel === "moderado") {
+    corpo =
+      `🟠 Atenção — sua performance está em ${row.performance.toFixed(0)}%.\n` +
+      `Ainda restam ${row.pendingCount} pacote(s) de ${row.total} pra entregar hoje.\n` +
+      `Corre pra finalizar dentro do prazo!`;
+  } else if (row.performance < 100) {
+    corpo =
+      `🟢 Quase lá! Você já está com ${row.performance.toFixed(0)}% de performance.\n` +
+      `Faltam só ${row.pendingCount} pacote(s) de ${row.total}.\n` +
+      `Finaliza logo pra fechar 100%! 💪`;
+  } else {
+    corpo = `✅ Parabéns! Rota 100% finalizada (${row.total} pacote(s) entregues). Continue assim! 🎉`;
+  }
+
+  const desempenhoLinha =
+    row.performance !== null
+      ? `Entregues: ${row.deliveredCount}/${row.total} (${row.performance.toFixed(0)}%)`
+      : "Entregues: sem dados ainda hoje";
+
+  return (
+    `📦 Desempenho de Entregas — ${row.name}\n` +
+    `Cidade: ${row.city}\n` +
+    `Status: ${row.status}\n` +
+    `${desempenhoLinha}\n\n` +
+    corpo
+  );
+}
+
+async function handleDriverAlertClick(row) {
+  const message = buildDriverAlertMessage(row);
+  const phone = normalizePhone(findDriverPhone(row.name));
+
+  if (phone) {
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank");
+    toast(`Alerta de desempenho preparado para ${firstName(row.name)}`, "good");
+    return;
+  }
+
+  const ok = await copyTextToClipboard(message);
+  if (ok) {
+    toast(`${firstName(row.name)} sem telefone — alerta copiado, cole pra enviar manualmente`, "good");
+  } else {
+    toast("Não foi possível copiar automaticamente", "bad");
+  }
 }
 
 function renderDriverActivityTable(rows) {
@@ -2828,7 +2913,7 @@ function renderDriverActivityTable(rows) {
 
   if (!filtered.length) {
     tbody.innerHTML =
-      '<tr><td colspan="6" style="text-align:center; color:var(--text-dim,#999); padding:16px;">Sem dados de entregadores</td></tr>';
+      '<tr><td colspan="7" style="text-align:center; color:var(--text-dim,#999); padding:16px;">Sem dados de entregadores</td></tr>';
     return;
   }
 
@@ -2836,20 +2921,29 @@ function renderDriverActivityTable(rows) {
   const LIMIAR_ALERTA_MS = 2 * 60 * 60 * 1000;
 
   tbody.innerHTML = filtered
-    .map((r) => {
+    .map((r, idx) => {
       const statusClass =
         r.status === "Em rota" ? "em-rota" : r.status === "Finalizado" ? "finalizado" : "sem-atividade";
       const tempoClass = r.tempoParadoMs != null && r.tempoParadoMs > LIMIAR_ALERTA_MS ? "driver-activity-stopped-alert" : "";
+      const alertLabel = r.performance === null ? "📣 Alertar" : r.nivel === "forte" ? "🔴 Cobrar" : r.nivel === "moderado" ? "🟠 Cobrar" : "🟢 Incentivar";
       return `<tr>
-        <td>${r.name}</td>
+        <td class="driver-name-cell" title="${r.name}">${r.name}</td>
         <td>${r.city}</td>
         <td><span class="driver-activity-status ${statusClass}">${r.status}</span></td>
         <td>${r.pickupLabel}</td>
         <td>${r.lastDeliveredLabel}</td>
         <td class="${tempoClass}">${r.tempoParadoLabel}</td>
+        <td><button type="button" class="driver-activity-alert-btn nivel-${r.nivel}" data-idx="${idx}">${alertLabel}</button></td>
       </tr>`;
     })
     .join("");
+
+  tbody.querySelectorAll(".driver-activity-alert-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = filtered[Number(btn.dataset.idx)];
+      if (row) handleDriverAlertClick(row);
+    });
+  });
 }
 
 const driverActivityCityFilter = document.getElementById("driverActivityCityFilter");

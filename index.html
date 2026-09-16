@@ -240,6 +240,7 @@
                               <th>Subiu rota</th>
                               <th>Última entrega</th>
                               <th>Tempo parado</th>
+                              <th>Ação</th>
                           </tr>
                       </thead>
                       <tbody id="driverActivityTableBody"></tbody>
@@ -510,13 +511,14 @@
     gap: 8px;
   }
   .driver-activity-table-wrap{
+    overflow-x: auto;
     overflow-y: auto;
     max-height: 320px;
   }
   .driver-activity-table{
     width: 100%;
     border-collapse: collapse;
-    font-size: 12.5px;
+    font-size: 12px;
   }
   .driver-activity-table th{
     position: sticky;
@@ -526,6 +528,7 @@
     color: var(--text-dim, #999);
     border-bottom: 1px solid rgba(255,255,255,0.1);
     background: var(--panel, #161616);
+    white-space: nowrap;
   }
   .driver-activity-table td{
     padding: 6px 8px;
@@ -533,6 +536,25 @@
     border-bottom: 1px solid rgba(255,255,255,0.06);
     white-space: nowrap;
   }
+  .driver-activity-table td.driver-name-cell{
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+  }
+  .driver-activity-alert-btn{
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #fff;
+  }
+  .driver-activity-alert-btn.nivel-forte{ background: #ef4444; }
+  .driver-activity-alert-btn.nivel-moderado{ background: #f97316; }
+  .driver-activity-alert-btn.nivel-leve{ background: #22c55e; color: #052e12; }
   .driver-activity-status{
     padding: 2px 8px;
     border-radius: 999px;
