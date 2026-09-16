@@ -268,13 +268,22 @@ function renderBacklogCharts(rows) {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 500, easing: "easeOutQuart" },
+        onClick: (evt, elements) => {
+          if (elements.length > 0) {
+            const idx = elements[0].index;
+            window.handleBacklogAgingClick && window.handleBacklogAgingClick(idx);
+          }
+        },
+        onHover: (evt, elements) => {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
         scales: {
           y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor } },
           x: { grid: { display: false }, ticks: { color: tickColor } },
         },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: (item) => `${item.raw} pacotes` } },
+          tooltip: { callbacks: { label: (item) => `${item.raw} pacotes — clique pra filtrar` } },
         },
       },
     });

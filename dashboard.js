@@ -63,6 +63,11 @@ const globalSearchResults = document.getElementById("globalSearchResults");
 let slaRows = [];
 let dsRows = [];
 let backlogRows = [];
+// Filtro de "dias parado" do Backlog — ativado clicando numa barra
+// do gráfico de envelhecimento. null = sem filtro; 0-3 = o mesmo
+// número usado por agingRank() (0=sem atraso, 1=1-3d, 2=3-6d, 3=+6d)
+let backlogAgingFilter = null;
+const BACKLOG_AGING_LABELS = ["Sem atraso", "1 a 3 dias", "3 a 6 dias", "Mais de 6 dias"];
 let pnrRows = [];
 let manifestRows = [];
 let cepToCity = {};
@@ -527,6 +532,22 @@ function renderBacklogView() {
   if (cityValue) {
     rows = rows.filter((r) => r.__city === cityValue);
   }
+  if (backlogAgingFilter !== null) {
+    rows = rows.filter((r) => agingRank(r["LM Leg Aging"]) === backlogAgingFilter);
+  }
+
+  // Aviso de que o filtro de dias está ativo, com botão pra limpar —
+  // só aparece quando o filtro está ligado
+  const agingFilterBadge = document.getElementById("backlogAgingFilterBadge");
+  if (agingFilterBadge) {
+    if (backlogAgingFilter !== null) {
+      agingFilterBadge.style.display = "inline-flex";
+      agingFilterBadge.querySelector(".backlog-aging-filter-text").textContent =
+        `Filtrando: ${BACKLOG_AGING_LABELS[backlogAgingFilter]}`;
+    } else {
+      agingFilterBadge.style.display = "none";
+    }
+  }
 
   // Botão "Notificar Entregador" — só aparece com um entregador filtrado
   if (btnBacklogDriverNotify) {
@@ -628,6 +649,14 @@ if (backlogDriverFilter) {
 }
 if (backlogCityFilter) {
   backlogCityFilter.addEventListener("change", renderBacklogView);
+}
+const btnLimparFiltroAging = document.getElementById("btnLimparFiltroAging");
+if (btnLimparFiltroAging) {
+  btnLimparFiltroAging.addEventListener("click", () => {
+    backlogAgingFilter = null;
+    renderBacklogView();
+    toast("Filtro de dias removido", "info");
+  });
 }
 
 // ------------------------------------------------------------
@@ -2464,6 +2493,19 @@ window.handleRankingClick = function (label, mode, statusFilter) {
     citySelect.value = label;
     toast(`Filtrando por ${label}`, "good");
     refresh();
+  }
+};
+
+// Clique numa barra do gráfico "dias parado" do Backlog — filtra a
+// tabela pra só esse intervalo. Clicar de novo na mesma barra tira
+// o filtro (alterna liga/desliga).
+window.handleBacklogAgingClick = function (rank) {
+  backlogAgingFilter = backlogAgingFilter === rank ? null : rank;
+  renderBacklogView();
+  if (backlogAgingFilter !== null) {
+    toast(`Filtrando Backlog: ${BACKLOG_AGING_LABELS[rank]}`, "good");
+  } else {
+    toast("Filtro de dias removido", "info");
   }
 };
 
