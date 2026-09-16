@@ -2927,7 +2927,7 @@ function renderDriverActivityTable(rows) {
       const tempoClass = r.tempoParadoMs != null && r.tempoParadoMs > LIMIAR_ALERTA_MS ? "driver-activity-stopped-alert" : "";
       const alertLabel = r.performance === null ? "📣 Alertar" : r.nivel === "forte" ? "🔴 Cobrar" : r.nivel === "moderado" ? "🟠 Cobrar" : "🟢 Incentivar";
       return `<tr>
-        <td class="driver-name-cell" title="${r.name}">${r.name}</td>
+        <td class="driver-name-cell" title="${r.name}">${firstName(r.name)}</td>
         <td>${r.city}</td>
         <td><span class="driver-activity-status ${statusClass}">${r.status}</span></td>
         <td>${r.pickupLabel}</td>
