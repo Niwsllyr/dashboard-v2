@@ -1615,9 +1615,19 @@ function enterTvMode() {
   const views = ["GENERAL", "SLA", "DS", "BACKLOG", "PNR", "CITY"];
   let idx = 0;
   switchView(views[0]);
+
+  // O Chart.js mede o tamanho da caixa na hora que desenha — e nesse
+  // momento o layout do Modo TV ainda não tinha terminado de se
+  // ajustar (por isso os gráficos ficavam com altura quase zero).
+  // Forçando um "resize" depois que a tela já se acomodou, ele mede
+  // de novo e preenche o espaço certinho.
+  setTimeout(() => window.dispatchEvent(new Event("resize")), 150);
+  setTimeout(() => window.dispatchEvent(new Event("resize")), 500);
+
   tvInterval = setInterval(() => {
     idx = (idx + 1) % views.length;
     switchView(views[idx]);
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 150);
   }, 10000);
   if (btnTvMode) btnTvMode.innerText = "✖️ Sair do Modo TV";
 }
@@ -1629,6 +1639,12 @@ function exitTvMode() {
   tvInterval = null;
   if (btnTvMode) btnTvMode.innerText = "📺 Modo TV";
 }
+
+document.addEventListener("fullscreenchange", () => {
+  // Entrar em tela cheia muda o tamanho real da janela — depois que
+  // isso termina de verdade, os gráficos precisam medir de novo.
+  setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+});
 
 if (btnTvMode) {
   btnTvMode.addEventListener("click", () => {
