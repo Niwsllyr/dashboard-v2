@@ -1,6 +1,6 @@
 import { processCSV } from "./csvReader.js?v=20260913a";
 import { processBacklogFile } from "./backlogReader.js?v=20260912b";
-import { renderCharts, renderBacklogCharts, renderPnrCharts } from "./charts.js?v=20260913c";
+import { renderCharts, renderBacklogCharts, renderPnrCharts, renderHourlyDeliveryChart } from "./charts.js?v=20260913c";
 import { calculateMetrics, calculateOperationScore } from "./metrics.js?v=20260912b";
 import { resolveCepsToCities } from "./cepresolver.js?v=20260912b";
 
@@ -1331,6 +1331,7 @@ function renderView(slaFiltered, dsFiltered, manifestFiltered = []) {
       currentView,
       { status: statusSelect.value, rawData: slaFiltered, cepToCity, goal: GOAL }
     );
+    renderHourlyDeliveryChart(slaFiltered);
     renderDriverTable(slaMetrics.driverSLA, true);
   } else {
     const metrics =
@@ -1368,6 +1369,7 @@ function renderView(slaFiltered, dsFiltered, manifestFiltered = []) {
       currentView,
       { status: statusSelect.value, rawData, cepToCity, goal: GOAL }
     );
+    renderHourlyDeliveryChart(rawData);
     renderDriverTable(metrics.driverSLA, false);
   }
 }

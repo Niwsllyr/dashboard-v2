@@ -456,3 +456,105 @@ function renderPnrCharts(rows) {
     });
   }
 }
+
+// ------------------------------------------------------------
+// Curva de entregas por horário (6h às 22h, de hora em hora):
+// quantos pacotes viraram "Delivered" em cada hora, e quantos
+// saíram pra rota (Pick Up Time) em cada hora. O campo
+// "Delivering Time" do SPX nunca vem preenchido de verdade, então
+// "Pick Up Time" (quando o motorista pegou o pacote no hub) é quem
+// representa "começou a estar em rota".
+// ------------------------------------------------------------
+let hourlyDeliveryChart;
+
+const HOURLY_START = 6;
+const HOURLY_END = 22;
+
+function parseSpxDateTime(value) {
+  if (!value) return null;
+  const str = value.toString().trim();
+  // formato do SPX: "DD-MM-YYYY HH:MM"
+  const m = str.match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [, dd, mm, yyyy, hh, min] = m;
+  return new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min));
+}
+
+function renderHourlyDeliveryChart(rows) {
+  if (hourlyDeliveryChart) hourlyDeliveryChart.destroy();
+
+  const canvas = document.getElementById("hourlyDeliveryChart");
+  if (!canvas) return;
+
+  const isLight = document.documentElement.getAttribute("data-theme") === "light";
+  const gridColor = isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.06)";
+  const tickColor = isLight ? "#333333" : "#cccccc";
+
+  const hours = [];
+  for (let h = HOURLY_START; h <= HOURLY_END; h++) hours.push(h);
+
+  const deliveredCounts = hours.map(() => 0);
+  const pickupCounts = hours.map(() => 0);
+
+  (rows || []).forEach((row) => {
+    const delivered = parseSpxDateTime(row["Delivered Time"]);
+    if (delivered) {
+      const h = delivered.getHours();
+      if (h >= HOURLY_START && h <= HOURLY_END) deliveredCounts[h - HOURLY_START]++;
+    }
+    const pickup = parseSpxDateTime(row["Pick Up Time"]);
+    if (pickup) {
+      const h = pickup.getHours();
+      if (h >= HOURLY_START && h <= HOURLY_END) pickupCounts[h - HOURLY_START]++;
+    }
+  });
+
+  const labels = hours.map((h) => `${h.toString().padStart(2, "0")}h`);
+
+  hourlyDeliveryChart = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Entregues (Delivered)",
+          data: deliveredCounts,
+          borderColor: "#22c55e",
+          backgroundColor: "rgba(34,197,94,0.15)",
+          tension: 0.3,
+          fill: true,
+          pointRadius: 3,
+        },
+        {
+          label: "Saíram pra rota (Pick Up)",
+          data: pickupCounts,
+          borderColor: "#facc15",
+          backgroundColor: "rgba(250,204,21,0.15)",
+          tension: 0.3,
+          fill: true,
+          pointRadius: 3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 500, easing: "easeOutQuart" },
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: tickColor } },
+        x: { grid: { display: false }, ticks: { color: tickColor } },
+      },
+      plugins: {
+        legend: { display: true, labels: { color: tickColor } },
+        tooltip: {
+          callbacks: {
+            label: (item) => `${item.dataset.label}: ${item.raw} pacote(s)`,
+          },
+        },
+      },
+    },
+  });
+}
+
+export { renderHourlyDeliveryChart };
