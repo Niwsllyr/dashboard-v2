@@ -1034,7 +1034,19 @@ if (window.electronAPI) {
   // ==========================================
 
   async function abrirModalHistorico() {
-    const dias = await window.electronAPI.listarDiasHistorico();
+    if (!window.electronAPI || !window.electronAPI.listarDiasHistorico) {
+      toast('Esse recurso precisa da versão mais nova do app (main.js/preload.js) — feche e substitua os arquivos.', 'bad');
+      return;
+    }
+
+    let dias = [];
+    try {
+      dias = await window.electronAPI.listarDiasHistorico();
+    } catch (erro) {
+      toast('Erro ao buscar o histórico: ' + erro.message, 'bad');
+      console.error('Erro em listarDiasHistorico:', erro);
+      return;
+    }
 
     const overlay = document.createElement('div');
     overlay.className = 'xpt-modal-overlay';
@@ -1073,13 +1085,18 @@ if (window.electronAPI) {
         const dataLabel = data.split('-').reverse().join('/');
         fechar();
         toast(`Carregando dados de ${dataLabel}...`, 'info');
-        const resultado = await window.electronAPI.carregarHistoricoDia(data);
-        if (resultado && resultado.ok && resultado.carregados.length) {
-          toast(`Histórico de ${dataLabel} carregado (${resultado.carregados.join(', ')})`, 'good');
-        } else if (resultado && resultado.carregados && resultado.carregados.length) {
-          toast(`Histórico de ${dataLabel} carregado parcialmente (${resultado.carregados.join(', ')})`, 'warn');
-        } else {
-          toast(`Não consegui carregar o histórico de ${dataLabel}`, 'bad');
+        try {
+          const resultado = await window.electronAPI.carregarHistoricoDia(data);
+          if (resultado && resultado.ok && resultado.carregados.length) {
+            toast(`Histórico de ${dataLabel} carregado (${resultado.carregados.join(', ')})`, 'good');
+          } else if (resultado && resultado.carregados && resultado.carregados.length) {
+            toast(`Histórico de ${dataLabel} carregado parcialmente (${resultado.carregados.join(', ')})`, 'warn');
+          } else {
+            toast(`Não consegui carregar o histórico de ${dataLabel}`, 'bad');
+          }
+        } catch (erro) {
+          toast('Erro ao carregar histórico: ' + erro.message, 'bad');
+          console.error('Erro em carregarHistoricoDia:', erro);
         }
       });
     });
