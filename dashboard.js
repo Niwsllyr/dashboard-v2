@@ -1608,6 +1608,48 @@ document.addEventListener("keydown", (e) => {
 // ------------------------------------------------------------
 let tvInterval = null;
 
+// Em vez de depender de flexbox/grid do styles.css (que a gente não
+// enxerga por inteiro daqui e pode estar brigando com o Modo TV),
+// calcula na marra, em pixels reais, quanto espaço sobra na tela
+// depois do cabeçalho e dos KPIs, e divide isso entre as fileiras
+// de gráfico visíveis. Isso não depende de nenhuma regra de CSS
+// escondida — só mede o que está na tela de verdade.
+function ajustarAlturaGraficosTv() {
+  if (!document.body.classList.contains("tv-mode")) return;
+
+  const paginaAtiva = document.querySelector(
+    '.table-page:not([style*="display: none"]):not([style*="display:none"]), #homePage:not([style*="display: none"]):not([style*="display:none"])'
+  );
+  if (!paginaAtiva) return;
+
+  const chartGrids = Array.from(paginaAtiva.querySelectorAll(".chart-grid")).filter(
+    (g) => g.offsetParent !== null
+  );
+  if (!chartGrids.length) return;
+
+  const topbar = document.querySelector(".topbar");
+  const controlBar = document.querySelector(".control-bar");
+  const kpiGrid = paginaAtiva.querySelector(".kpi-grid");
+
+  const topbarH = topbar ? topbar.getBoundingClientRect().height : 0;
+  const controlBarH = controlBar ? controlBar.getBoundingClientRect().height : 0;
+  const kpiH = kpiGrid ? kpiGrid.getBoundingClientRect().height : 0;
+
+  // margem de segurança pra rodapé/gaps/paddings que não estamos
+  // medindo diretamente
+  const margemSeguranca = 60;
+  const disponivel = window.innerHeight - topbarH - controlBarH - kpiH - margemSeguranca;
+  const alturaPorLinha = Math.max(220, Math.floor(disponivel / chartGrids.length));
+
+  chartGrids.forEach((grid) => {
+    grid.style.flex = "none";
+    grid.style.height = alturaPorLinha + "px";
+    grid.style.marginBottom = "8px";
+  });
+
+  window.dispatchEvent(new Event("resize"));
+}
+
 function enterTvMode() {
   document.body.classList.add("tv-mode");
   const el = document.getElementById("dashboard");
@@ -1616,18 +1658,15 @@ function enterTvMode() {
   let idx = 0;
   switchView(views[0]);
 
-  // O Chart.js mede o tamanho da caixa na hora que desenha — e nesse
-  // momento o layout do Modo TV ainda não tinha terminado de se
-  // ajustar (por isso os gráficos ficavam com altura quase zero).
-  // Forçando um "resize" depois que a tela já se acomodou, ele mede
-  // de novo e preenche o espaço certinho.
-  setTimeout(() => window.dispatchEvent(new Event("resize")), 150);
-  setTimeout(() => window.dispatchEvent(new Event("resize")), 500);
+  setTimeout(ajustarAlturaGraficosTv, 150);
+  setTimeout(ajustarAlturaGraficosTv, 500);
+  setTimeout(ajustarAlturaGraficosTv, 1200);
 
   tvInterval = setInterval(() => {
     idx = (idx + 1) % views.length;
     switchView(views[idx]);
-    setTimeout(() => window.dispatchEvent(new Event("resize")), 150);
+    setTimeout(ajustarAlturaGraficosTv, 150);
+    setTimeout(ajustarAlturaGraficosTv, 500);
   }, 10000);
   if (btnTvMode) btnTvMode.innerText = "✖️ Sair do Modo TV";
 }
@@ -1638,6 +1677,14 @@ function exitTvMode() {
   clearInterval(tvInterval);
   tvInterval = null;
   if (btnTvMode) btnTvMode.innerText = "📺 Modo TV";
+
+  // Desfaz o tamanho forçado em pixels — volta pro CSS normal
+  document.querySelectorAll(".chart-grid").forEach((grid) => {
+    grid.style.flex = "";
+    grid.style.height = "";
+    grid.style.marginBottom = "";
+  });
+  setTimeout(() => window.dispatchEvent(new Event("resize")), 150);
 }
 
 document.addEventListener("fullscreenchange", () => {
