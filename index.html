@@ -535,8 +535,14 @@
   }
   body.tv-mode .topbar {
     flex: 0 0 auto;
-    padding-top: 8px !important;
-    padding-bottom: 4px !important;
+    padding-top: 4px !important;
+    padding-bottom: 2px !important;
+  }
+  /* Some com logo/título/licença no Modo TV — sobra bem mais espaço
+     de verdade pros gráficos. Só fica o botão de sair (que já vem
+     centralizado pelo resto do CSS do app). */
+  body.tv-mode .topbar-top-row {
+    display: none !important;
   }
   body.tv-mode .control-bar {
     flex: 0 0 auto;
