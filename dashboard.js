@@ -2957,21 +2957,11 @@ function renderDriverActivityTable(rows) {
 
   const allRows = buildDriverActivityRows(rows);
 
-  const cityFilterEl = document.getElementById("driverActivityCityFilter");
   const statusFilterEl = document.getElementById("driverActivityStatusFilter");
 
-  if (cityFilterEl) {
-    const cities = [...new Set(allRows.map((r) => r.city).filter((c) => c && c !== "-"))].sort((a, b) =>
-      a.localeCompare(b, "pt-BR")
-    );
-    populateSelectPreserve(cityFilterEl, cities, '<option value="">Todas as Cidades</option>');
-  }
-
-  const cityValue = cityFilterEl ? cityFilterEl.value : "";
   const statusValue = statusFilterEl ? statusFilterEl.value : "";
 
   let filtered = allRows;
-  if (cityValue) filtered = filtered.filter((r) => r.city === cityValue);
   if (statusValue) filtered = filtered.filter((r) => r.status === statusValue);
 
   if (!filtered.length) {
@@ -3009,12 +2999,8 @@ function renderDriverActivityTable(rows) {
   });
 }
 
-const driverActivityCityFilter = document.getElementById("driverActivityCityFilter");
 const driverActivityStatusFilter = document.getElementById("driverActivityStatusFilter");
 let lastDriverActivityRows = [];
-if (driverActivityCityFilter) {
-  driverActivityCityFilter.addEventListener("change", () => renderDriverActivityTable(lastDriverActivityRows));
-}
 if (driverActivityStatusFilter) {
   driverActivityStatusFilter.addEventListener("change", () => renderDriverActivityTable(lastDriverActivityRows));
 }
