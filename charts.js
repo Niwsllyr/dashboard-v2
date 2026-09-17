@@ -558,3 +558,184 @@ function renderHourlyDeliveryChart(rows) {
 }
 
 export { renderHourlyDeliveryChart };
+
+// Força todos os gráficos que já existem a medir o tamanho da caixa
+// de novo. Necessário porque o Chart.js usa ResizeObserver (não
+// escuta o evento de resize da janela) — então trocar de layout via
+// CSS (como o Modo TV faz) não é percebido sozinho.
+function resizeAllCharts() {
+  [
+    statusChart,
+    rankingChart,
+    backlogAgingChart,
+    backlogHandlerChart,
+    pnrDeadlineChart,
+    pnrDriverChart,
+    hourlyDeliveryChart,
+  ].forEach((chart) => {
+    if (chart && typeof chart.resize === "function") {
+      try {
+        chart.resize();
+      } catch {}
+    }
+  });
+}
+
+export { resizeAllCharts };
+
+// ------------------------------------------------------------
+// Gráficos da aba "Análise de OP" — evolução de SLA%, DS% e PNR
+// (quantidade + valor em risco) dia a dia, num intervalo escolhido
+// ------------------------------------------------------------
+let opSlaChart, opDsChart, opPnrChart;
+
+function renderOpTimelineCharts(pontos) {
+  if (opSlaChart) opSlaChart.destroy();
+  if (opDsChart) opDsChart.destroy();
+  if (opPnrChart) opPnrChart.destroy();
+
+  const isLight = document.documentElement.getAttribute("data-theme") === "light";
+  const gridColor = isLight ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.06)";
+  const tickColor = isLight ? "#333333" : "#cccccc";
+
+  const labels = (pontos || []).map((p) => {
+    const [, mes, dia] = p.data.split("-");
+    return `${dia}/${mes}`;
+  });
+
+  const slaCanvas = document.getElementById("opSlaChart");
+  if (slaCanvas) {
+    opSlaChart = new Chart(slaCanvas, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "SLA %",
+            data: (pontos || []).map((p) => p.slaPercent),
+            borderColor: "#22c55e",
+            backgroundColor: "rgba(34,197,94,0.15)",
+            tension: 0.3,
+            fill: true,
+            pointRadius: 3,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 500, easing: "easeOutQuart" },
+        scales: {
+          y: { beginAtZero: false, grid: { color: gridColor }, ticks: { color: tickColor, callback: (v) => v + "%" } },
+          x: { grid: { display: false }, ticks: { color: tickColor } },
+        },
+        plugins: {
+          legend: { display: true, labels: { color: tickColor } },
+          tooltip: { callbacks: { label: (item) => `SLA: ${item.raw.toFixed(2)}%` } },
+        },
+      },
+    });
+  }
+
+  const dsCanvas = document.getElementById("opDsChart");
+  if (dsCanvas) {
+    opDsChart = new Chart(dsCanvas, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "DS %",
+            data: (pontos || []).map((p) => p.dsPercent),
+            borderColor: "#facc15",
+            backgroundColor: "rgba(250,204,21,0.15)",
+            tension: 0.3,
+            fill: true,
+            pointRadius: 3,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 500, easing: "easeOutQuart" },
+        scales: {
+          y: { beginAtZero: false, grid: { color: gridColor }, ticks: { color: tickColor, callback: (v) => v + "%" } },
+          x: { grid: { display: false }, ticks: { color: tickColor } },
+        },
+        plugins: {
+          legend: { display: true, labels: { color: tickColor } },
+          tooltip: { callbacks: { label: (item) => `DS: ${item.raw.toFixed(2)}%` } },
+        },
+      },
+    });
+  }
+
+  const pnrCanvas = document.getElementById("opPnrChart");
+  if (pnrCanvas) {
+    opPnrChart = new Chart(pnrCanvas, {
+      data: {
+        labels,
+        datasets: [
+          {
+            type: "bar",
+            label: "PNR em aberto (qtd)",
+            data: (pontos || []).map((p) => p.pnrCount),
+            backgroundColor: "#ef4444",
+            borderRadius: 6,
+            yAxisID: "yQtd",
+          },
+          {
+            type: "line",
+            label: "Valor em risco (R$)",
+            data: (pontos || []).map((p) => p.pnrValue),
+            borderColor: "#38bdf8",
+            backgroundColor: "rgba(56,189,248,0.15)",
+            tension: 0.3,
+            pointRadius: 3,
+            yAxisID: "yValor",
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 500, easing: "easeOutQuart" },
+        scales: {
+          yQtd: {
+            type: "linear",
+            position: "left",
+            beginAtZero: true,
+            grid: { color: gridColor },
+            ticks: { color: tickColor },
+            title: { display: true, text: "PNR (qtd)", color: tickColor },
+          },
+          yValor: {
+            type: "linear",
+            position: "right",
+            beginAtZero: true,
+            grid: { display: false },
+            ticks: { color: tickColor, callback: (v) => "R$ " + v },
+            title: { display: true, text: "Valor em risco (R$)", color: tickColor },
+          },
+          x: { grid: { display: false }, ticks: { color: tickColor } },
+        },
+        plugins: {
+          legend: { display: true, labels: { color: tickColor } },
+          tooltip: {
+            callbacks: {
+              label: (item) => {
+                if (item.dataset.yAxisID === "yValor") {
+                  return `Valor em risco: R$ ${item.raw.toFixed(2).replace(".", ",")}`;
+                }
+                return `PNR em aberto: ${item.raw}`;
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+}
+
+export { renderOpTimelineCharts };

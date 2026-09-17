@@ -68,7 +68,8 @@
               <button id="btnBacklog" class="nav">Backlog</button>
               <button id="btnPnr" class="nav">PNR</button>
               <button id="btnCity" class="nav">Entregadores</button>
-              <button id="btnManifest" class="nav">Análise de Manifesto</button>
+              <button id="btnManifest" class="nav">Manifesto</button>
+              <button id="btnAnaliseOP" class="nav">Análise de OP</button>
           </div>
           <div class="actions-group">
               <select id="paletteSelect" class="palette-select" title="Paleta de cores"></select>
@@ -433,6 +434,48 @@
       </div>
   </section>
 
+  <section id="analiseOpPage" class="table-page" style="display:none;">
+
+      <div class="card" style="margin-bottom:20px;">
+          <div class="table-card-header">
+            <h2>📈 Análise de OP — evolução no período</h2>
+          </div>
+          <div class="op-analise-controls">
+              <label class="op-analise-label">De
+                  <input type="date" id="opDataInicio">
+              </label>
+              <label class="op-analise-label">Até
+                  <input type="date" id="opDataFim">
+              </label>
+              <select id="opCityFilter">
+                  <option value="">Todas as Cidades</option>
+              </select>
+              <select id="opDriverFilter">
+                  <option value="">Todos os Entregadores</option>
+              </select>
+              <button class="print" id="btnGerarAnaliseOp" type="button">📈 Gerar Análise</button>
+              <button class="print print-ghost" id="btnAnaliseOpPdf" type="button">📄 Relatório PDF</button>
+              <button class="print print-ghost" id="btnAnaliseOpTxt" type="button">📝 Relatório TXT</button>
+          </div>
+          <div id="opAnaliseStatus" class="op-analise-status"></div>
+      </div>
+
+      <div class="chart-grid">
+          <div class="card">
+              <canvas id="opSlaChart"></canvas>
+          </div>
+          <div class="card">
+              <canvas id="opDsChart"></canvas>
+          </div>
+      </div>
+      <div class="chart-grid">
+          <div class="card" style="grid-column: 1 / -1;">
+              <canvas id="opPnrChart"></canvas>
+          </div>
+      </div>
+
+  </section>
+
     <footer class="footer">
       © 2025 Desenvolvido por Niwsllyr Jhunhor
   </footer>
@@ -549,6 +592,33 @@
   .historico-dia-tipos{
     font-size: 11px;
     color: var(--text-dim, #999);
+  }
+  .op-analise-controls{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0 4px;
+  }
+  .op-analise-label{
+    display: flex;
+    flex-direction: column;
+    font-size: 11px;
+    color: var(--text-dim, #999);
+    gap: 3px;
+  }
+  .op-analise-label input[type="date"]{
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text, #e5e5e5);
+    font-size: 13px;
+  }
+  .op-analise-status{
+    font-size: 12.5px;
+    color: var(--text-dim, #999);
+    padding-top: 6px;
   }
   /* Modo TV é só pra visualização — some com tudo que é controle/ação,
      não só o que já era escondido antes */

@@ -1,6 +1,6 @@
 import { processCSV } from "./csvReader.js?v=20260913a";
 import { processBacklogFile } from "./backlogReader.js?v=20260912b";
-import { renderCharts, renderBacklogCharts, renderPnrCharts, renderHourlyDeliveryChart } from "./charts.js?v=20260913c";
+import { renderCharts, renderBacklogCharts, renderPnrCharts, renderHourlyDeliveryChart, renderOpTimelineCharts } from "./charts.js?v=20260913c";
 import { calculateMetrics, calculateOperationScore } from "./metrics.js?v=20260912b";
 import { resolveCepsToCities } from "./cepresolver.js?v=20260912b";
 
@@ -26,6 +26,7 @@ const btnBacklog = document.getElementById("btnBacklog");
 const btnPnr = document.getElementById("btnPnr");
 const btnCity = document.getElementById("btnCity");
 const btnManifest = document.getElementById("btnManifest");
+const btnAnaliseOP = document.getElementById("btnAnaliseOP");
 const btnExportCsv = document.getElementById("btnExportCsv");
 const btnClearRankingFilter = document.getElementById("btnClearRankingFilter");
 const btnExportPdf = document.getElementById("btnExportPdf");
@@ -41,6 +42,7 @@ const btnBacklogDriverNotify = document.getElementById("btnBacklogDriverNotify")
 const btnBacklogCityNotify = document.getElementById("btnBacklogCityNotify");
 const backlogTableBody = document.getElementById("backlogTableBody");
 const pnrPage = document.getElementById("pnrPage");
+const analiseOpPage = document.getElementById("analiseOpPage");
 const pnrSearch = document.getElementById("pnrSearch");
 const pnrScopeFilter = document.getElementById("pnrScopeFilter");
 const pnrStatusFilter = document.getElementById("pnrStatusFilter");
@@ -2522,11 +2524,23 @@ function setActiveNav(button) {
 
 function switchView(view) {
   hideStatusPage();
+  if (view === "ANALISE_OP") {
+    activePage = "ANALISE_OP";
+    homePage.style.display = "none";
+    backlogPage.style.display = "none";
+    pnrPage.style.display = "none";
+    cityPage.style.display = "none";
+    analiseOpPage.style.display = "block";
+    emptyState.style.display = "none";
+    setActiveNav(btnAnaliseOP);
+    return;
+  }
   if (view === "CITY") {
     activePage = "CITY";
     homePage.style.display = "none";
     backlogPage.style.display = "none";
     pnrPage.style.display = "none";
+    analiseOpPage.style.display = "none";
     cityPage.style.display = "block";
     setActiveNav(btnCity);
     syncEmptyState();
@@ -2537,6 +2551,7 @@ function switchView(view) {
     homePage.style.display = "none";
     cityPage.style.display = "none";
     pnrPage.style.display = "none";
+    analiseOpPage.style.display = "none";
     backlogPage.style.display = "block";
     emptyState.style.display = "none";
     setActiveNav(btnBacklog);
@@ -2548,6 +2563,7 @@ function switchView(view) {
     homePage.style.display = "none";
     cityPage.style.display = "none";
     backlogPage.style.display = "none";
+    analiseOpPage.style.display = "none";
     pnrPage.style.display = "block";
     emptyState.style.display = "none";
     setActiveNav(btnPnr);
@@ -2561,6 +2577,7 @@ function switchView(view) {
   cityPage.style.display = "none";
   backlogPage.style.display = "none";
   pnrPage.style.display = "none";
+  analiseOpPage.style.display = "none";
 
   if (view === "GENERAL") {
     document.getElementById("kpiSlaCard").style.display = "flex";
@@ -2593,6 +2610,7 @@ btnBacklog.onclick = () => switchView("BACKLOG");
 btnPnr.onclick = () => switchView("PNR");
 btnCity.onclick = () => switchView("CITY");
 btnManifest.onclick = () => switchView("MANIFESTO");
+btnAnaliseOP.onclick = () => switchView("ANALISE_OP");
 
 function hideStatusPage() {
   const el = document.getElementById("statusPage");
@@ -3017,3 +3035,318 @@ if (driverActivityCityFilter) {
 if (driverActivityStatusFilter) {
   driverActivityStatusFilter.addEventListener("change", () => renderDriverActivityTable(lastDriverActivityRows));
 }
+
+// ============================================================
+// ANÁLISE DE OP — evolução de SLA/DS/PNR num intervalo de dias,
+// lendo direto do histórico já arquivado (não depende de nada
+// carregado na tela no momento)
+// ============================================================
+
+let ultimaAnaliseOp = [];
+let ultimaAnaliseOpFiltros = { cidade: "", entregador: "" };
+
+function parseCsvString(text) {
+  if (!text) return [];
+  try {
+    const resultado = Papa.parse(text, { header: true, skipEmptyLines: true });
+    return resultado.data || [];
+  } catch {
+    return [];
+  }
+}
+
+function filtrarLinhasOp(rows, cityValue, driverValue) {
+  let filtradas = rows;
+  if (driverValue) {
+    filtradas = filtradas.filter((r) => (r["Driver Name"] || "").toString().trim() === driverValue);
+  }
+  if (cityValue) {
+    filtradas = filtradas.filter((r) => cepToCity[r["Postal Code"]] === cityValue);
+  }
+  return filtradas;
+}
+
+function formatarDataBR(dataISO) {
+  const [ano, mes, dia] = dataISO.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+async function gerarAnaliseOp() {
+  const inicioEl = document.getElementById("opDataInicio");
+  const fimEl = document.getElementById("opDataFim");
+  const cityEl = document.getElementById("opCityFilter");
+  const driverEl = document.getElementById("opDriverFilter");
+  const statusEl = document.getElementById("opAnaliseStatus");
+
+  const dataInicio = inicioEl ? inicioEl.value : "";
+  const dataFim = fimEl ? fimEl.value : "";
+
+  if (!dataInicio || !dataFim) {
+    toast('Escolha as duas datas ("De" e "Até").', "warn");
+    return;
+  }
+  if (dataInicio > dataFim) {
+    toast('A data "De" não pode ser depois da data "Até".', "warn");
+    return;
+  }
+  if (!window.electronAPI || !window.electronAPI.lerHistoricoIntervalo) {
+    toast("Esse recurso precisa da versão mais nova do app (main.js/preload.js).", "bad");
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = "Carregando histórico...";
+
+  let dias = [];
+  try {
+    dias = await window.electronAPI.lerHistoricoIntervalo(dataInicio, dataFim);
+  } catch (erro) {
+    if (statusEl) statusEl.textContent = "";
+    toast("Erro ao ler o histórico: " + erro.message, "bad");
+    return;
+  }
+
+  const cityValue = cityEl ? cityEl.value : "";
+  const driverValue = driverEl ? driverEl.value : "";
+
+  if (!dias || !dias.length) {
+    if (statusEl) {
+      statusEl.textContent = "Nenhum dado salvo nesse período (o histórico guarda só os últimos 30 dias, por perfil).";
+    }
+    ultimaAnaliseOp = [];
+    renderOpTimelineCharts([]);
+    return;
+  }
+
+  const citiesSeen = new Set();
+  const driversSeen = new Set();
+
+  const pontos = dias.map((dia) => {
+    const slaRowsRaw = (dia.SLA || []).flatMap((f) => parseCsvString(f.conteudo));
+    const dsRowsRaw = (dia.DS || []).flatMap((f) => parseCsvString(f.conteudo));
+    const pnrRowsRaw = (dia.PNR || []).flatMap((f) => parseCsvString(f.conteudo));
+
+    // coleta cidades/entregadores vistos nesse dia (antes de filtrar),
+    // pra popular os seletores de filtro
+    [...slaRowsRaw, ...dsRowsRaw].forEach((r) => {
+      const driver = (r["Driver Name"] || "").toString().trim();
+      if (driver) driversSeen.add(driver);
+      const city = cepToCity[r["Postal Code"]];
+      if (city) citiesSeen.add(city);
+    });
+
+    const slaRows = filtrarLinhasOp(slaRowsRaw, cityValue, driverValue);
+    const dsRows = filtrarLinhasOp(dsRowsRaw, cityValue, driverValue);
+    const pnrRows = filtrarLinhasOp(pnrRowsRaw, cityValue, driverValue);
+
+    const slaMetrics = calculateMetrics(slaRows, "SLA", cepToCity);
+    const dsMetrics = calculateMetrics(dsRows, "DS", cepToCity);
+
+    const pnrOpenRows = pnrRows.filter((r) => OPEN_PNR_STATUSES.includes((r["Status"] || "").toString().trim()));
+    const pnrCount = pnrOpenRows.length;
+    const pnrValue = pnrOpenRows.reduce((soma, r) => soma + (parseFloat(r["PNR Order Value"]) || 0), 0);
+
+    return {
+      data: dia.data,
+      slaPercent: parseFloat(slaMetrics.sla) || 0,
+      dsPercent: parseFloat(dsMetrics.sla) || 0,
+      pnrCount,
+      pnrValue,
+    };
+  });
+
+  if (cityEl) {
+    populateSelectPreserve(
+      cityEl,
+      [...citiesSeen].sort((a, b) => a.localeCompare(b, "pt-BR")),
+      '<option value="">Todas as Cidades</option>'
+    );
+  }
+  if (driverEl) {
+    populateSelectPreserve(
+      driverEl,
+      [...driversSeen].sort((a, b) => a.localeCompare(b, "pt-BR")),
+      '<option value="">Todos os Entregadores</option>'
+    );
+  }
+
+  ultimaAnaliseOp = pontos;
+  ultimaAnaliseOpFiltros = { cidade: cityValue, entregador: driverValue };
+
+  if (statusEl) {
+    const filtroTexto = [cityValue && `cidade: ${cityValue}`, driverValue && `entregador: ${driverValue}`]
+      .filter(Boolean)
+      .join(", ");
+    statusEl.textContent = `${dias.length} dia(s) encontrado(s) no período${filtroTexto ? " — " + filtroTexto : ""}.`;
+  }
+
+  renderOpTimelineCharts(pontos);
+}
+
+function exportAnaliseOpTxt() {
+  if (!ultimaAnaliseOp || !ultimaAnaliseOp.length) {
+    toast('Clica em "Gerar Análise" primeiro.', "warn");
+    return;
+  }
+
+  const linhas = ultimaAnaliseOp.map((p) => {
+    return `${formatarDataBR(p.data)} — SLA ${p.slaPercent.toFixed(2)}% | DS ${p.dsPercent.toFixed(2)}% | PNR: ${p.pnrCount} aberto(s) (R$ ${p.pnrValue.toFixed(2).replace(".", ",")})`;
+  });
+
+  const mediaSla = (ultimaAnaliseOp.reduce((s, p) => s + p.slaPercent, 0) / ultimaAnaliseOp.length).toFixed(2);
+  const mediaDs = (ultimaAnaliseOp.reduce((s, p) => s + p.dsPercent, 0) / ultimaAnaliseOp.length).toFixed(2);
+  const totalPnrValue = ultimaAnaliseOp.reduce((s, p) => s + p.pnrValue, 0);
+
+  const filtroTexto = [
+    ultimaAnaliseOpFiltros.cidade && `Cidade: ${ultimaAnaliseOpFiltros.cidade}`,
+    ultimaAnaliseOpFiltros.entregador && `Entregador: ${ultimaAnaliseOpFiltros.entregador}`,
+  ].filter(Boolean).join(" | ");
+
+  const texto =
+    `📈 Análise de OP — ${formatarDataBR(ultimaAnaliseOp[0].data)} a ${formatarDataBR(ultimaAnaliseOp[ultimaAnaliseOp.length - 1].data)}\n` +
+    (filtroTexto ? `${filtroTexto}\n` : "") +
+    `\n${linhas.join("\n")}\n\n` +
+    `Média SLA: ${mediaSla}% | Média DS: ${mediaDs}% | Total em risco (PNR): R$ ${totalPnrValue.toFixed(2).replace(".", ",")}`;
+
+  navigator.clipboard.writeText(texto)
+    .then(() => toast("Relatório copiado! Já pode colar no WhatsApp.", "good"))
+    .catch(() => toast("Não consegui copiar automaticamente — copie o texto manualmente.", "warn"));
+}
+
+function exportAnaliseOpPdf() {
+  if (!ultimaAnaliseOp || !ultimaAnaliseOp.length) {
+    toast('Clica em "Gerar Análise" primeiro.', "warn");
+    return;
+  }
+
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent-2").trim() || "#e00000";
+  const accentRgb = (accent.match(/[\da-f]{2}/gi) || ["e0", "00", "00"]).map((h) => parseInt(h, 16));
+  const darkRgb = [20, 20, 20];
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const marginX = 48;
+  const marginBottom = 50;
+  const usableWidth = pageWidth - marginX * 2;
+  let y = 0;
+
+  function drawHeaderBar() {
+    pdf.setFillColor(accentRgb[0], accentRgb[1], accentRgb[2]);
+    pdf.rect(0, 0, pageWidth, 54, "F");
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(14);
+    pdf.setTextColor(255, 255, 255);
+    pdf.text("Análise de OP — evolução no período", marginX, 33);
+    y = 80;
+  }
+
+  function ensureSpace(need) {
+    if (y + need > pageHeight - marginBottom) {
+      pdf.addPage();
+      drawHeaderBar();
+    }
+  }
+
+  drawHeaderBar();
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(90, 90, 90);
+  const periodo = `${formatarDataBR(ultimaAnaliseOp[0].data)} a ${formatarDataBR(ultimaAnaliseOp[ultimaAnaliseOp.length - 1].data)}`;
+  const filtroTexto = [
+    ultimaAnaliseOpFiltros.cidade && `Cidade: ${ultimaAnaliseOpFiltros.cidade}`,
+    ultimaAnaliseOpFiltros.entregador && `Entregador: ${ultimaAnaliseOpFiltros.entregador}`,
+  ].filter(Boolean).join("   |   ");
+  pdf.text(`Período: ${periodo}${filtroTexto ? "   |   " + filtroTexto : ""}`, marginX, y);
+  y += 24;
+
+  const colunas = ["Data", "SLA %", "DS %", "PNR Aberto", "Valor em Risco"];
+  const larguras = [0.2, 0.2, 0.2, 0.2, 0.2].map((f) => f * usableWidth);
+  const rowH = 18;
+
+  function drawHeaderRow() {
+    ensureSpace(rowH + 4);
+    pdf.setFillColor(accentRgb[0], accentRgb[1], accentRgb[2]);
+    pdf.rect(marginX, y, usableWidth, rowH, "F");
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9.5);
+    pdf.setTextColor(255, 255, 255);
+    let x = marginX + 6;
+    colunas.forEach((col, i) => {
+      pdf.text(col, x, y + 12);
+      x += larguras[i];
+    });
+    y += rowH;
+  }
+
+  drawHeaderRow();
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(9.5);
+
+  ultimaAnaliseOp.forEach((p, idx) => {
+    ensureSpace(rowH);
+    if (idx % 2 === 0) {
+      pdf.setFillColor(245, 245, 245);
+      pdf.rect(marginX, y, usableWidth, rowH, "F");
+    }
+    pdf.setTextColor(darkRgb[0], darkRgb[1], darkRgb[2]);
+    let x = marginX + 6;
+    const valores = [
+      formatarDataBR(p.data),
+      `${p.slaPercent.toFixed(2)}%`,
+      `${p.dsPercent.toFixed(2)}%`,
+      String(p.pnrCount),
+      `R$ ${p.pnrValue.toFixed(2).replace(".", ",")}`,
+    ];
+    valores.forEach((val, i) => {
+      pdf.text(val, x, y + 12);
+      x += larguras[i];
+    });
+    y += rowH;
+  });
+
+  y += 16;
+  ensureSpace(20);
+  const mediaSla = (ultimaAnaliseOp.reduce((s, p) => s + p.slaPercent, 0) / ultimaAnaliseOp.length).toFixed(2);
+  const mediaDs = (ultimaAnaliseOp.reduce((s, p) => s + p.dsPercent, 0) / ultimaAnaliseOp.length).toFixed(2);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(darkRgb[0], darkRgb[1], darkRgb[2]);
+  pdf.text(`Média SLA: ${mediaSla}%   |   Média DS: ${mediaDs}%`, marginX, y);
+
+  const nomeArquivo = `analise-op_${ultimaAnaliseOp[0].data}_a_${ultimaAnaliseOp[ultimaAnaliseOp.length - 1].data}.pdf`;
+  pdf.save(nomeArquivo);
+  toast("PDF gerado!", "good");
+}
+
+const btnGerarAnaliseOp = document.getElementById("btnGerarAnaliseOp");
+if (btnGerarAnaliseOp) btnGerarAnaliseOp.addEventListener("click", gerarAnaliseOp);
+
+const btnAnaliseOpTxt = document.getElementById("btnAnaliseOpTxt");
+if (btnAnaliseOpTxt) btnAnaliseOpTxt.addEventListener("click", exportAnaliseOpTxt);
+
+const btnAnaliseOpPdf = document.getElementById("btnAnaliseOpPdf");
+if (btnAnaliseOpPdf) btnAnaliseOpPdf.addEventListener("click", exportAnaliseOpPdf);
+
+// Datas padrão: últimos 7 dias, só na primeira vez que a aba é aberta
+(function definirDatasPadraoOp() {
+  const inicioEl = document.getElementById("opDataInicio");
+  const fimEl = document.getElementById("opDataFim");
+  if (!inicioEl || !fimEl) return;
+
+  const hoje = new Date();
+  const seteAtras = new Date();
+  seteAtras.setDate(hoje.getDate() - 7);
+
+  const paraISO = (d) => {
+    const ano = d.getFullYear();
+    const mes = String(d.getMonth() + 1).padStart(2, "0");
+    const dia = String(d.getDate()).padStart(2, "0");
+    return `${ano}-${mes}-${dia}`;
+  };
+
+  fimEl.value = paraISO(hoje);
+  inicioEl.value = paraISO(seteAtras);
+})();
