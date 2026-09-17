@@ -76,6 +76,7 @@
               <button id="btnTvMode" class="theme-toggle" type="button">📺 Modo TV</button>
               <span id="electronActions" style="display:none;">
                   <button class="print print-ghost" id="btnAbrirLog" type="button" title="Abrir o log detalhado da última atualização">📄 Ver Log</button>
+                  <button class="print print-ghost" id="btnHistorico" type="button" title="Ver dados salvos de dias anteriores (últimos 30 dias)">📅 Histórico</button>
               </span>
               <button class="print" id="btnExportPdf" type="button">📄 Relatório PDF</button>
               <button class="print" id="btnExportTxt" type="button">📝 Relatório TXT</button>
@@ -511,6 +512,43 @@
   }
   #electronImportBtn{
     display: inline-flex;
+  }
+  .xpt-modal-historico{
+    max-width: 420px;
+    width: 90vw;
+  }
+  .historico-lista{
+    max-height: 340px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 12px 0;
+  }
+  .historico-dia-btn{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    color: var(--text, #e5e5e5);
+    text-align: left;
+    transition: background 0.15s;
+  }
+  .historico-dia-btn:hover{
+    background: rgba(255,255,255,0.09);
+  }
+  .historico-dia-data{
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .historico-dia-tipos{
+    font-size: 11px;
+    color: var(--text-dim, #999);
   }
   /* Modo TV é só pra visualização — some com tudo que é controle/ação,
      não só o que já era escondido antes */
@@ -988,6 +1026,68 @@ if (window.electronAPI) {
   const btnAdicionarPerfil = document.getElementById('btnAdicionarPerfil');
   if (btnAdicionarPerfil) {
     btnAdicionarPerfil.addEventListener('click', cadastrarNovoPerfil);
+  }
+
+  // ==========================================
+  // HISTÓRICO DIÁRIO — últimos 30 dias, só a última
+  // atualização de cada dia (por perfil)
+  // ==========================================
+
+  async function abrirModalHistorico() {
+    const dias = await window.electronAPI.listarDiasHistorico();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'xpt-modal-overlay';
+
+    const listaHtml = dias.length
+      ? dias.map((d) => {
+          const [ano, mes, dia] = d.data.split('-');
+          return `<button type="button" class="historico-dia-btn" data-data="${d.data}">
+            <span class="historico-dia-data">${dia}/${mes}/${ano}</span>
+            <span class="historico-dia-tipos">${d.tipos.join(', ')}</span>
+          </button>`;
+        }).join('')
+      : '<p style="color:var(--text-dim,#999); text-align:center; padding:20px;">Nenhum dia salvo ainda. O histórico é criado sozinho a cada atualização.</p>';
+
+    overlay.innerHTML = `
+      <div class="xpt-modal xpt-modal-historico">
+        <div class="xpt-modal-title">📅 Histórico (últimos 30 dias)</div>
+        <div class="historico-lista">${listaHtml}</div>
+        <div class="xpt-modal-actions">
+          <button type="button" class="xpt-modal-cancel">Fechar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    function fechar() {
+      document.body.removeChild(overlay);
+    }
+
+    overlay.querySelector('.xpt-modal-cancel').onclick = fechar;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) fechar(); });
+
+    overlay.querySelectorAll('.historico-dia-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const data = btn.dataset.data;
+        const dataLabel = data.split('-').reverse().join('/');
+        fechar();
+        toast(`Carregando dados de ${dataLabel}...`, 'info');
+        const resultado = await window.electronAPI.carregarHistoricoDia(data);
+        if (resultado && resultado.ok && resultado.carregados.length) {
+          toast(`Histórico de ${dataLabel} carregado (${resultado.carregados.join(', ')})`, 'good');
+        } else if (resultado && resultado.carregados && resultado.carregados.length) {
+          toast(`Histórico de ${dataLabel} carregado parcialmente (${resultado.carregados.join(', ')})`, 'warn');
+        } else {
+          toast(`Não consegui carregar o histórico de ${dataLabel}`, 'bad');
+        }
+      });
+    });
+  }
+
+  const btnHistorico = document.getElementById('btnHistorico');
+  if (btnHistorico) {
+    btnHistorico.addEventListener('click', abrirModalHistorico);
   }
 
   if (perfilSelect) {
