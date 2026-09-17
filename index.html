@@ -224,6 +224,9 @@
               <div class="driver-activity-header">
                   <strong>Atuação dos Entregadores</strong>
                   <div class="driver-activity-filters">
+                      <select id="driverActivityCityFilter">
+                          <option value="">Todas as Cidades</option>
+                      </select>
                       <select id="driverActivityStatusFilter">
                           <option value="">Todos os Status</option>
                           <option value="Em rota">Em rota</option>
@@ -237,7 +240,6 @@
                       <thead>
                           <tr>
                               <th>Entregador</th>
-                              <th>Cidade</th>
                               <th>Status</th>
                               <th>Subiu rota</th>
                               <th>Última entrega</th>
@@ -638,7 +640,7 @@
     white-space: nowrap;
   }
   .driver-activity-table td.driver-name-cell{
-    max-width: 150px;
+    max-width: 230px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

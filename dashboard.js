@@ -2957,16 +2957,26 @@ function renderDriverActivityTable(rows) {
 
   const allRows = buildDriverActivityRows(rows);
 
+  const cityFilterEl = document.getElementById("driverActivityCityFilter");
   const statusFilterEl = document.getElementById("driverActivityStatusFilter");
 
+  if (cityFilterEl) {
+    const cities = [...new Set(allRows.map((r) => r.city).filter((c) => c && c !== "-"))].sort((a, b) =>
+      a.localeCompare(b, "pt-BR")
+    );
+    populateSelectPreserve(cityFilterEl, cities, '<option value="">Todas as Cidades</option>');
+  }
+
+  const cityValue = cityFilterEl ? cityFilterEl.value : "";
   const statusValue = statusFilterEl ? statusFilterEl.value : "";
 
   let filtered = allRows;
+  if (cityValue) filtered = filtered.filter((r) => r.city === cityValue);
   if (statusValue) filtered = filtered.filter((r) => r.status === statusValue);
 
   if (!filtered.length) {
     tbody.innerHTML =
-      '<tr><td colspan="7" style="text-align:center; color:var(--text-dim,#999); padding:16px;">Sem dados de entregadores</td></tr>';
+      '<tr><td colspan="6" style="text-align:center; color:var(--text-dim,#999); padding:16px;">Sem dados de entregadores</td></tr>';
     return;
   }
 
@@ -2980,8 +2990,7 @@ function renderDriverActivityTable(rows) {
       const tempoClass = r.tempoParadoMs != null && r.tempoParadoMs > LIMIAR_ALERTA_MS ? "driver-activity-stopped-alert" : "";
       const alertLabel = r.performance === null ? "📣 Alertar" : r.nivel === "forte" ? "🔴 Cobrar" : r.nivel === "moderado" ? "🟠 Cobrar" : "🟢 Incentivar";
       return `<tr>
-        <td class="driver-name-cell" title="${r.name}">${firstName(r.name)}</td>
-        <td>${r.city}</td>
+        <td class="driver-name-cell" title="${r.name}">${r.name}</td>
         <td><span class="driver-activity-status ${statusClass}">${r.status}</span></td>
         <td>${r.pickupLabel}</td>
         <td>${r.lastDeliveredLabel}</td>
@@ -2999,8 +3008,12 @@ function renderDriverActivityTable(rows) {
   });
 }
 
+const driverActivityCityFilter = document.getElementById("driverActivityCityFilter");
 const driverActivityStatusFilter = document.getElementById("driverActivityStatusFilter");
 let lastDriverActivityRows = [];
+if (driverActivityCityFilter) {
+  driverActivityCityFilter.addEventListener("change", () => renderDriverActivityTable(lastDriverActivityRows));
+}
 if (driverActivityStatusFilter) {
   driverActivityStatusFilter.addEventListener("change", () => renderDriverActivityTable(lastDriverActivityRows));
 }
