@@ -3145,9 +3145,17 @@ async function gerarAnaliseOp() {
 
   if (statusEl) statusEl.textContent = "Carregando histórico...";
 
+  // Busca um dia A MAIS antes do início escolhido — só serve de
+  // "linha de base" pra saber quais PNRs já estavam abertos antes
+  // do primeiro dia do período (senão não dá pra saber quantos
+  // "abriram" nesse primeiro dia).
+  const dataInicioObj = new Date(dataInicio + "T00:00:00");
+  dataInicioObj.setDate(dataInicioObj.getDate() - 1);
+  const dataBaseISO = dataInicioObj.toISOString().slice(0, 10);
+
   let dias = [];
   try {
-    dias = await window.electronAPI.lerHistoricoIntervalo(dataInicio, dataFim);
+    dias = await window.electronAPI.lerHistoricoIntervalo(dataBaseISO, dataFim);
   } catch (erro) {
     if (statusEl) statusEl.textContent = "";
     toast("Erro ao ler o histórico: " + erro.message, "bad");
@@ -3157,7 +3165,11 @@ async function gerarAnaliseOp() {
   const cityValue = cityEl ? cityEl.value : "";
   const driverValue = driverEl ? driverEl.value : "";
 
-  if (!dias || !dias.length) {
+  // tira o dia de base da lista de dias "de verdade" mostrados —
+  // ele só serve de comparação pro primeiro dia do período
+  const diasDoPeriodo = dias.filter((d) => d.data >= dataInicio);
+
+  if (!diasDoPeriodo.length) {
     if (statusEl) {
       statusEl.textContent = "Nenhum dado salvo nesse período (o histórico guarda só os últimos 30 dias, por perfil).";
     }
@@ -3169,13 +3181,19 @@ async function gerarAnaliseOp() {
   const citiesSeen = new Set();
   const driversSeen = new Set();
 
-  const pontos = dias.map((dia) => {
+  // Monta, pra CADA dia baixado (incluindo o dia de base), o
+  // conjunto de PNRs em aberto naquele dia (identificados pelo
+  // SPXTN) — usado pra comparar dia com dia e descobrir quais
+  // abriram e quais fecharam.
+  const conjuntoAbertosPorDia = {};
+
+  dias.forEach((dia) => {
     const slaRowsRaw = (dia.SLA || []).flatMap((f) => parseCsvString(f.conteudo));
     const dsRowsRaw = (dia.DS || []).flatMap((f) => parseCsvString(f.conteudo));
     const pnrRowsRaw = (dia.PNR || []).flatMap((f) => parseCsvString(f.conteudo));
 
-    // coleta cidades/entregadores vistos nesse dia (antes de filtrar),
-    // pra popular os seletores de filtro
+    // coleta cidades/entregadores vistos (antes de filtrar), pra
+    // popular os seletores de filtro
     [...slaRowsRaw, ...dsRowsRaw].forEach((r) => {
       const driver = (r["Driver Name"] || "").toString().trim();
       if (driver) driversSeen.add(driver);
@@ -3183,23 +3201,53 @@ async function gerarAnaliseOp() {
       if (city) citiesSeen.add(city);
     });
 
+    const pnrRows = filtrarLinhasOp(pnrRowsRaw, cityValue, driverValue);
+    const pnrOpenRows = pnrRows.filter((r) => OPEN_PNR_STATUSES.includes((r["Status"] || "").toString().trim()));
+
+    const conjunto = new Set(pnrOpenRows.map((r) => (r["SPXTN"] || "").toString().trim()).filter(Boolean));
+    const valorEmRisco = pnrOpenRows.reduce((soma, r) => soma + (parseFloat(r["PNR Order Value"]) || 0), 0);
+
+    conjuntoAbertosPorDia[dia.data] = { conjunto, valorEmRisco };
+  });
+
+  const pontos = diasDoPeriodo.map((dia) => {
+    const slaRowsRaw = (dia.SLA || []).flatMap((f) => parseCsvString(f.conteudo));
+    const dsRowsRaw = (dia.DS || []).flatMap((f) => parseCsvString(f.conteudo));
+
     const slaRows = filtrarLinhasOp(slaRowsRaw, cityValue, driverValue);
     const dsRows = filtrarLinhasOp(dsRowsRaw, cityValue, driverValue);
-    const pnrRows = filtrarLinhasOp(pnrRowsRaw, cityValue, driverValue);
 
     const slaMetrics = calculateMetrics(slaRows, "SLA", cepToCity);
     const dsMetrics = calculateMetrics(dsRows, "DS", cepToCity);
 
-    const pnrOpenRows = pnrRows.filter((r) => OPEN_PNR_STATUSES.includes((r["Status"] || "").toString().trim()));
-    const pnrCount = pnrOpenRows.length;
-    const pnrValue = pnrOpenRows.reduce((soma, r) => soma + (parseFloat(r["PNR Order Value"]) || 0), 0);
+    // dia anterior a esse, pra comparação (pode ser o dia de base)
+    const dataAnteriorObj = new Date(dia.data + "T00:00:00");
+    dataAnteriorObj.setDate(dataAnteriorObj.getDate() - 1);
+    const dataAnteriorISO = dataAnteriorObj.toISOString().slice(0, 10);
+
+    const hojeInfo = conjuntoAbertosPorDia[dia.data] || { conjunto: new Set(), valorEmRisco: 0 };
+    const ontemInfo = conjuntoAbertosPorDia[dataAnteriorISO];
+
+    const pendentes = hojeInfo.conjunto.size;
+
+    let abertosNoDia = null;
+    let resolvidosNoDia = null;
+
+    if (ontemInfo) {
+      // abriu hoje = está no conjunto de hoje mas não estava no de ontem
+      abertosNoDia = [...hojeInfo.conjunto].filter((id) => !ontemInfo.conjunto.has(id)).length;
+      // resolveu hoje = estava aberto ontem e não está mais aberto hoje
+      resolvidosNoDia = [...ontemInfo.conjunto].filter((id) => !hojeInfo.conjunto.has(id)).length;
+    }
 
     return {
       data: dia.data,
       slaPercent: parseFloat(slaMetrics.sla) || 0,
       dsPercent: parseFloat(dsMetrics.sla) || 0,
-      pnrCount,
-      pnrValue,
+      pnrPendentes: pendentes,
+      pnrAbertos: abertosNoDia,
+      pnrResolvidos: resolvidosNoDia,
+      pnrValue: hojeInfo.valorEmRisco,
     };
   });
 
@@ -3225,7 +3273,7 @@ async function gerarAnaliseOp() {
     const filtroTexto = [cityValue && `cidade: ${cityValue}`, driverValue && `entregador: ${driverValue}`]
       .filter(Boolean)
       .join(", ");
-    statusEl.textContent = `${dias.length} dia(s) encontrado(s) no período${filtroTexto ? " — " + filtroTexto : ""}.`;
+    statusEl.textContent = `${diasDoPeriodo.length} dia(s) encontrado(s) no período${filtroTexto ? " — " + filtroTexto : ""}.`;
   }
 
   renderOpTimelineCharts(pontos);
@@ -3238,7 +3286,7 @@ function exportAnaliseOpTxt() {
   }
 
   const linhas = ultimaAnaliseOp.map((p) => {
-    return `${formatarDataBR(p.data)} — SLA ${p.slaPercent.toFixed(2)}% | DS ${p.dsPercent.toFixed(2)}% | PNR: ${p.pnrCount} aberto(s) (R$ ${p.pnrValue.toFixed(2).replace(".", ",")})`;
+    return `${formatarDataBR(p.data)} — SLA ${p.slaPercent.toFixed(2)}% | DS ${p.dsPercent.toFixed(2)}% | PNR: ${p.pnrAbertos ?? "—"} aberto(s) hoje, ${p.pnrResolvidos ?? "—"} resolvido(s) hoje, ${p.pnrPendentes} pendente(s) (R$ ${p.pnrValue.toFixed(2).replace(".", ",")})`;
   });
 
   const mediaSla = (ultimaAnaliseOp.reduce((s, p) => s + p.slaPercent, 0) / ultimaAnaliseOp.length).toFixed(2);
@@ -3310,8 +3358,8 @@ function exportAnaliseOpPdf() {
   pdf.text(`Período: ${periodo}${filtroTexto ? "   |   " + filtroTexto : ""}`, marginX, y);
   y += 24;
 
-  const colunas = ["Data", "SLA %", "DS %", "PNR Aberto", "Valor em Risco"];
-  const larguras = [0.2, 0.2, 0.2, 0.2, 0.2].map((f) => f * usableWidth);
+  const colunas = ["Data", "SLA %", "DS %", "PNR Abertos", "PNR Resolvidos", "PNR Pendentes"];
+  const larguras = [0.16, 0.16, 0.16, 0.17, 0.17, 0.18].map((f) => f * usableWidth);
   const rowH = 18;
 
   function drawHeaderRow() {
@@ -3346,8 +3394,9 @@ function exportAnaliseOpPdf() {
       formatarDataBR(p.data),
       `${p.slaPercent.toFixed(2)}%`,
       `${p.dsPercent.toFixed(2)}%`,
-      String(p.pnrCount),
-      `R$ ${p.pnrValue.toFixed(2).replace(".", ",")}`,
+      p.pnrAbertos ?? "—",
+      p.pnrResolvidos ?? "—",
+      String(p.pnrPendentes),
     ];
     valores.forEach((val, i) => {
       pdf.text(val, x, y + 12);

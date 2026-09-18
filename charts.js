@@ -674,26 +674,38 @@ function renderOpTimelineCharts(pontos) {
   const pnrCanvas = document.getElementById("opPnrChart");
   if (pnrCanvas) {
     opPnrChart = new Chart(pnrCanvas, {
+      type: "line",
       data: {
         labels,
         datasets: [
           {
-            type: "bar",
-            label: "PNR em aberto (qtd)",
-            data: (pontos || []).map((p) => p.pnrCount),
-            backgroundColor: "#ef4444",
-            borderRadius: 6,
-            yAxisID: "yQtd",
+            label: "Abertos no dia",
+            data: (pontos || []).map((p) => p.pnrAbertos),
+            borderColor: "#facc15",
+            backgroundColor: "rgba(250,204,21,0.12)",
+            tension: 0.3,
+            fill: false,
+            pointRadius: 3,
+            spanGaps: true,
           },
           {
-            type: "line",
-            label: "Valor em risco (R$)",
-            data: (pontos || []).map((p) => p.pnrValue),
-            borderColor: "#38bdf8",
-            backgroundColor: "rgba(56,189,248,0.15)",
+            label: "Resolvidos no dia",
+            data: (pontos || []).map((p) => p.pnrResolvidos),
+            borderColor: "#22c55e",
+            backgroundColor: "rgba(34,197,94,0.12)",
             tension: 0.3,
+            fill: false,
             pointRadius: 3,
-            yAxisID: "yValor",
+            spanGaps: true,
+          },
+          {
+            label: "Pendentes",
+            data: (pontos || []).map((p) => p.pnrPendentes),
+            borderColor: "#ef4444",
+            backgroundColor: "rgba(239,68,68,0.12)",
+            tension: 0.3,
+            fill: false,
+            pointRadius: 3,
           },
         ],
       },
@@ -701,22 +713,13 @@ function renderOpTimelineCharts(pontos) {
         responsive: true,
         maintainAspectRatio: false,
         animation: { duration: 500, easing: "easeOutQuart" },
+        interaction: { mode: "index", intersect: false },
         scales: {
-          yQtd: {
-            type: "linear",
-            position: "left",
+          y: {
             beginAtZero: true,
             grid: { color: gridColor },
-            ticks: { color: tickColor },
-            title: { display: true, text: "PNR (qtd)", color: tickColor },
-          },
-          yValor: {
-            type: "linear",
-            position: "right",
-            beginAtZero: true,
-            grid: { display: false },
-            ticks: { color: tickColor, callback: (v) => "R$ " + v },
-            title: { display: true, text: "Valor em risco (R$)", color: tickColor },
+            ticks: { color: tickColor, precision: 0 },
+            title: { display: true, text: "Quantidade de PNR", color: tickColor },
           },
           x: { grid: { display: false }, ticks: { color: tickColor } },
         },
@@ -724,12 +727,7 @@ function renderOpTimelineCharts(pontos) {
           legend: { display: true, labels: { color: tickColor } },
           tooltip: {
             callbacks: {
-              label: (item) => {
-                if (item.dataset.yAxisID === "yValor") {
-                  return `Valor em risco: R$ ${item.raw.toFixed(2).replace(".", ",")}`;
-                }
-                return `PNR em aberto: ${item.raw}`;
-              },
+              label: (item) => `${item.dataset.label}: ${item.raw === null ? "sem dado do dia anterior" : item.raw}`,
             },
           },
         },
