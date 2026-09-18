@@ -330,6 +330,54 @@ function getPreviousSnapshot() {
   return prevEntries[prevEntries.length - 1];
 }
 
+// ------------------------------------------------------------
+// "vs ontem" agora vem do HISTÓRICO arquivado (não mais do
+// localStorage do navegador) — compara sempre com o que foi
+// salvo de verdade no dia anterior, por perfil. Como a busca no
+// histórico é assíncrona, guarda em cache (uma vez por dia) e
+// re-renderiza assim que a resposta chega, pra não travar a tela
+// esperando.
+// ------------------------------------------------------------
+let prevSnapshotHistorico = null;
+let prevSnapshotHistoricoData = null;
+
+async function atualizarPrevSnapshotHistorico() {
+  const hojeISO = new Date().toISOString().slice(0, 10);
+  if (prevSnapshotHistoricoData === hojeISO) return;
+
+  if (!window.electronAPI || !window.electronAPI.lerHistoricoIntervalo) {
+    prevSnapshotHistoricoData = hojeISO;
+    return;
+  }
+
+  const ontem = new Date();
+  ontem.setDate(ontem.getDate() - 1);
+  const ontemISO = ontem.toISOString().slice(0, 10);
+
+  try {
+    const dias = await window.electronAPI.lerHistoricoIntervalo(ontemISO, ontemISO);
+    if (dias && dias.length) {
+      const diaOntem = dias[0];
+      const slaRows = (diaOntem.SLA || []).flatMap((f) => parseCsvString(f.conteudo));
+      const dsRows = (diaOntem.DS || []).flatMap((f) => parseCsvString(f.conteudo));
+      const slaMetricsOntem = calculateMetrics(slaRows, "SLA", cepToCity);
+      const dsMetricsOntem = calculateMetrics(dsRows, "DS", cepToCity);
+      prevSnapshotHistorico = {
+        date: ontemISO,
+        sla: parseFloat(slaMetricsOntem.sla) || 0,
+        ds: parseFloat(dsMetricsOntem.sla) || 0,
+      };
+    } else {
+      prevSnapshotHistorico = null;
+    }
+  } catch {
+    prevSnapshotHistorico = null;
+  }
+
+  prevSnapshotHistoricoData = hojeISO;
+  refresh();
+}
+
 function daysAgoLabel(dateStr) {
   const diff = Math.round((new Date() - new Date(dateStr + "T00:00:00")) / 86400000);
   if (diff <= 1) return "ontem";
@@ -1305,7 +1353,8 @@ function renderView(slaFiltered, dsFiltered, manifestFiltered = []) {
   const slaMetrics = calculateMetrics(slaFiltered, "SLA", cepToCity);
   const dsMetrics = calculateMetrics(dsFiltered, "DS", cepToCity);
   const manifestMetrics = calculateMetrics(manifestFiltered, "DS", cepToCity);
-  const prevSnapshot = getPreviousSnapshot();
+  const prevSnapshot = prevSnapshotHistorico;
+  atualizarPrevSnapshotHistorico();
 
   if (currentView === "GENERAL") {
     const sla = parseFloat(slaMetrics.sla) || 0;
