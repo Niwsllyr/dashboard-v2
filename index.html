@@ -56,6 +56,7 @@
                   <button class="print print-ghost" id="btnAdicionarPerfil" type="button" title="Cadastra um novo perfil (você faz o login depois, quando quiser)">➕ Adicionar Perfil</button>
                   <button class="print print-ghost" id="btnFazerLogin" type="button" title="Abre o SPX pra fazer login no perfil selecionado (ou criar um novo)">🔑 Fazer Login</button>
                   <button class="print print-ghost" id="btnSairLogin" type="button" title="Apaga a sessão salva do perfil selecionado — só use pra trocar de conta">🚪 Sair do Login</button>
+                  <button class="print print-ghost" id="btnAcessoCelular" type="button" title="Mostra o PIN e o endereço pra acessar esse PC pelo celular">📱 Acesso pelo Celular</button>
               </div>
           </div>
       </div>
@@ -592,6 +593,28 @@
   .historico-dia-tipos{
     font-size: 11px;
     color: var(--text-dim, #999);
+  }
+  .acesso-celular-endereco{
+    font-family: monospace;
+    font-size: 15px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    color: var(--text, #e5e5e5);
+  }
+  .acesso-celular-pin{
+    font-family: monospace;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-align: center;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 10px;
+    color: var(--accent, #d92b2b);
   }
   .op-analise-controls{
     display: flex;
@@ -1175,6 +1198,80 @@ if (window.electronAPI) {
   const btnHistorico = document.getElementById('btnHistorico');
   if (btnHistorico) {
     btnHistorico.addEventListener('click', abrirModalHistorico);
+  }
+
+  // ==========================================
+  // ACESSO PELO CELULAR — mostra o PIN e o IP
+  // pra conectar o app do celular nesse PC
+  // ==========================================
+
+  async function abrirModalAcessoCelular() {
+    if (!window.electronAPI.obterPinServidor) {
+      toast('Esse recurso precisa da versão mais nova do app (main.js/preload.js).', 'bad');
+      return;
+    }
+
+    let pin = '';
+    let ips = [];
+    try {
+      [pin, ips] = await Promise.all([
+        window.electronAPI.obterPinServidor(),
+        window.electronAPI.obterIpLocal(),
+      ]);
+    } catch (erro) {
+      toast('Erro ao buscar o PIN: ' + erro.message, 'bad');
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'xpt-modal-overlay';
+
+    const enderecosHtml = ips.length
+      ? ips.map((ip) => `<div class="acesso-celular-endereco">http://${ip}:3000</div>`).join('')
+      : '<p style="color:var(--text-dim,#999);">Não achei nenhum endereço de rede — confere se está conectado no Wi-Fi/cabo.</p>';
+
+    overlay.innerHTML = `
+      <div class="xpt-modal xpt-modal-historico">
+        <div class="xpt-modal-title">📱 Acesso pelo Celular</div>
+        <p style="color:var(--text-dim,#999); font-size:13px; margin:6px 0 14px;">
+          No app do celular (mesma rede Wi-Fi por enquanto), usa esse endereço e esse PIN.
+          Mantém esse PC ligado e com o Dashboard XPT aberto.
+        </p>
+        <div style="margin-bottom:14px;">
+          <div class="etapas-label" style="margin-bottom:6px;">Endereço do PC:</div>
+          ${enderecosHtml}
+        </div>
+        <div style="margin-bottom:14px;">
+          <div class="etapas-label" style="margin-bottom:6px;">PIN de acesso:</div>
+          <div class="acesso-celular-pin">${pin}</div>
+        </div>
+        <div class="xpt-modal-actions">
+          <button type="button" class="xpt-modal-cancel" id="btnGerarNovoPin">Gerar novo PIN</button>
+          <button type="button" class="xpt-modal-ok" id="btnFecharAcessoCelular">Fechar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    function fechar() {
+      document.body.removeChild(overlay);
+    }
+
+    overlay.querySelector('#btnFecharAcessoCelular').onclick = fechar;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) fechar(); });
+
+    overlay.querySelector('#btnGerarNovoPin').onclick = async () => {
+      const confirmado = confirm('Isso invalida o PIN atual — qualquer celular já conectado vai precisar do PIN novo. Continuar?');
+      if (!confirmado) return;
+      const novoPin = await window.electronAPI.gerarNovoPinServidor();
+      overlay.querySelector('.acesso-celular-pin').textContent = novoPin;
+      toast('Novo PIN gerado.', 'good');
+    };
+  }
+
+  const btnAcessoCelular = document.getElementById('btnAcessoCelular');
+  if (btnAcessoCelular) {
+    btnAcessoCelular.addEventListener('click', abrirModalAcessoCelular);
   }
 
   if (perfilSelect) {
