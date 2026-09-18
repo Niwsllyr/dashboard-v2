@@ -596,13 +596,32 @@
   }
   .acesso-celular-endereco{
     font-family: monospace;
-    font-size: 15px;
+    font-size: 13px;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 6px;
     padding: 8px 10px;
-    margin-bottom: 6px;
     color: var(--text, #e5e5e5);
+    flex: 1;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .acesso-celular-endereco-linha{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .acesso-celular-copiar{
+    flex-shrink: 0;
+    background: var(--accent, #d92b2b);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
   }
   .acesso-celular-pin{
     font-family: monospace;
@@ -1227,19 +1246,43 @@ if (window.electronAPI) {
     overlay.className = 'xpt-modal-overlay';
 
     const enderecosHtml = ips.length
-      ? ips.map((ip) => `<div class="acesso-celular-endereco">http://${ip}:3000</div>`).join('')
+      ? ips.map((ip, idx) => {
+          const link = `http://${ip}:3000/?pin=${pin}`;
+          return `
+            <div class="acesso-celular-endereco-linha">
+              <span class="acesso-celular-endereco">${link}</span>
+              <button type="button" class="acesso-celular-copiar" data-link="${link}" title="Copiar link">📋 Copiar</button>
+            </div>
+          `;
+        }).join('')
       : '<p style="color:var(--text-dim,#999);">Não achei nenhum endereço de rede — confere se está conectado no Wi-Fi/cabo.</p>';
+
+    const enderecosTesteHtml = ips.length
+      ? ips.map((ip) => {
+          const linkTeste = `http://${ip}:3000/api/atualizar?pin=${pin}&etapas=SLA`;
+          return `
+            <div class="acesso-celular-endereco-linha">
+              <span class="acesso-celular-endereco">${linkTeste}</span>
+              <button type="button" class="acesso-celular-copiar" data-link="${linkTeste}" title="Copiar link">📋 Copiar</button>
+            </div>
+          `;
+        }).join('')
+      : '';
 
     overlay.innerHTML = `
       <div class="xpt-modal xpt-modal-historico">
         <div class="xpt-modal-title">📱 Acesso pelo Celular</div>
         <p style="color:var(--text-dim,#999); font-size:13px; margin:6px 0 14px;">
-          No app do celular (mesma rede Wi-Fi por enquanto), usa esse endereço e esse PIN.
+          No celular (mesma rede Wi-Fi por enquanto), abre esse link direto — já vem com o PIN embutido.
           Mantém esse PC ligado e com o Dashboard XPT aberto.
         </p>
         <div style="margin-bottom:14px;">
-          <div class="etapas-label" style="margin-bottom:6px;">Endereço do PC:</div>
+          <div class="etapas-label" style="margin-bottom:6px;">Link de acesso:</div>
           ${enderecosHtml}
+        </div>
+        <div style="margin-bottom:14px;">
+          <div class="etapas-label" style="margin-bottom:6px;">Link de teste (dispara atualização de SLA agora):</div>
+          ${enderecosTesteHtml}
         </div>
         <div style="margin-bottom:14px;">
           <div class="etapas-label" style="margin-bottom:6px;">PIN de acesso:</div>
@@ -1252,6 +1295,14 @@ if (window.electronAPI) {
       </div>
     `;
     document.body.appendChild(overlay);
+
+    overlay.querySelectorAll('.acesso-celular-copiar').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        navigator.clipboard.writeText(btn.dataset.link)
+          .then(() => toast('Link copiado!', 'good'))
+          .catch(() => toast('Não consegui copiar automaticamente — copia manual.', 'warn'));
+      });
+    });
 
     function fechar() {
       document.body.removeChild(overlay);
