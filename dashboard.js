@@ -3448,3 +3448,131 @@ if (btnAnaliseOpPdf) btnAnaliseOpPdf.addEventListener("click", exportAnaliseOpPd
   fimEl.value = paraISO(hoje);
   inicioEl.value = paraISO(seteAtras);
 })();
+
+// ============================================================
+// MODO REMOTO (celular) — quando a página é aberta com "?pin=...",
+// busca os dados de HOJE direto do servidor local (mesmo mecanismo
+// já usado pelo histórico) em vez de esperar upload de arquivo.
+// Isso só roda nessa cópia local do dashboard.js (a que fica no
+// PC, servida pro celular) — a versão publicada no GitHub Pages
+// continua igual, sem esse comportamento.
+// ============================================================
+
+const paramsUrlRemoto = new URLSearchParams(window.location.search);
+const remotePin = paramsUrlRemoto.get("pin");
+const isRemoteMode = !!remotePin;
+
+function parseBacklogBase64(base64) {
+  try {
+    const binary = atob(base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+    const workbook = XLSX.read(bytes, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  } catch (erro) {
+    console.error("Erro lendo Backlog remoto:", erro);
+    return [];
+  }
+}
+
+async function carregarDadosRemotos(dataEspecifica) {
+  if (!isRemoteMode) return;
+
+  const url = dataEspecifica
+    ? `/api/historico/dia?data=${encodeURIComponent(dataEspecifica)}`
+    : "/api/hoje";
+
+  let resposta;
+  try {
+    resposta = await fetch(url, { headers: { "X-Pin": remotePin } });
+  } catch (erro) {
+    toast("Erro ao conectar no servidor: " + erro.message, "bad");
+    return;
+  }
+
+  if (!resposta.ok) {
+    if (resposta.status === 401) {
+      toast("PIN incorreto — pede o link atualizado no PC.", "bad");
+    } else {
+      toast("Erro ao buscar dados de hoje (HTTP " + resposta.status + ").", "bad");
+    }
+    return;
+  }
+
+  const dia = await resposta.json();
+
+  const slaRowsNovos = (dia.SLA || []).flatMap((f) => parseCsvString(f.conteudo));
+  const dsRowsNovos = (dia.DS || []).flatMap((f) => parseCsvString(f.conteudo));
+  const pnrRowsNovos = (dia.PNR || []).flatMap((f) => parseCsvString(f.conteudo));
+  const manifestRowsNovos = (dia.MANIFESTO || []).flatMap((f) => parseCsvString(f.conteudo));
+  const backlogRowsNovos = (dia.BACKLOG || []).flatMap((f) => (f.binario ? parseBacklogBase64(f.conteudoBase64) : []));
+
+  if (slaRowsNovos.length) {
+    slaRows = slaRowsNovos;
+    extractDriverContacts(slaRows, Object.keys(slaRows[0] || {}));
+    refreshStationSet();
+    refreshStationSelect();
+
+    const drivers = [...new Set(slaRows.map((r) => r["Driver Name"]).filter(Boolean))];
+    driverSelect.innerHTML = '<option value="">Todos os Entregadores</option>';
+    drivers.forEach((d) => (driverSelect.innerHTML += `<option value="${d}">${d}</option>`));
+
+    const statuses = [...new Set(slaRows.map((r) => r.Status).filter(Boolean))];
+    statusSelect.innerHTML = '<option value="">Todos Status</option>';
+    statuses.forEach((s) => (statusSelect.innerHTML += `<option value="${s}">${s}</option>`));
+  }
+
+  if (dsRowsNovos.length) {
+    dsRows = dsRowsNovos;
+    extractDriverContacts(dsRows, Object.keys(dsRows[0] || {}));
+    refreshStationSet();
+    refreshStationSelect();
+  }
+
+  if (backlogRowsNovos.length) {
+    backlogRows = backlogRowsNovos;
+    if (backlogPage && backlogPage.style.display !== "none") renderBacklogView();
+  }
+
+  if (pnrRowsNovos.length) {
+    pnrRows = pnrRowsNovos;
+    if (pnrPage && pnrPage.style.display !== "none") renderPnrView();
+  }
+
+  if (manifestRowsNovos.length) {
+    manifestRows = manifestRowsNovos;
+    extractDriverContacts(manifestRows, Object.keys(manifestRows[0] || {}));
+    refreshStationSet();
+    refreshStationSelect();
+  }
+
+  if (
+    !slaRowsNovos.length &&
+    !dsRowsNovos.length &&
+    !backlogRowsNovos.length &&
+    !pnrRowsNovos.length &&
+    !manifestRowsNovos.length
+  ) {
+    toast(dataEspecifica ? "Nenhum dado salvo nesse dia." : "Nenhum dado de hoje ainda — faça uma atualização primeiro.", "warn");
+    return;
+  }
+
+  await resolveCeps();
+  refresh();
+  toast(dataEspecifica ? `Dados de ${dataEspecifica.split("-").reverse().join("/")} carregados!` : "Dados de hoje carregados!", "good");
+
+  // Os gráficos às vezes medem o tamanho da caixa antes da tela
+  // acabar de se ajustar (mesmo problema que já resolvemos no Modo
+  // TV) — força medir de novo depois que tudo assentou.
+  setTimeout(() => window.dispatchEvent(new Event("resize")), 150);
+  setTimeout(() => window.dispatchEvent(new Event("resize")), 500);
+}
+
+if (isRemoteMode) {
+  toast("Modo celular: carregando dados de hoje...", "info");
+  carregarDadosRemotos();
+  // atualiza sozinho a cada 60s, pra sempre estar com o mais recente
+  setInterval(carregarDadosRemotos, 60000);
+}
